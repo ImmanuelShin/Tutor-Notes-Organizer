@@ -1,10 +1,10 @@
 # Tutor Notes
 
-A local Windows desktop app for tutoring notes: students, topic templates, and a resource library. Nothing is uploaded; everything lives on this computer.
+A local Windows desktop app for tutoring notes. Uses local storage only.
 
 ## Run in development
 
-You need [Node.js](https://nodejs.org/) (LTS) and [Rust](https://rustup.rs/) (already required for Tauri).
+You need [Node.js](https://nodejs.org/) (LTS) and [Rust](https://rustup.rs/).
 
 ```bash
 npm install
@@ -19,31 +19,20 @@ npm run tauri build
 
 The installer is written to `src-tauri/target/release/bundle/nsis/`. The `.exe` itself is in `src-tauri/target/release/tutor-notes.exe`.
 
-A copy from the latest successful build may also appear in the `release/` folder (gitignored).
 
 ## Backup
 
-Copy this folder to back up students, notes, PDFs, and pasted images:
+Typical path for storage:
 
 ```
 %APPDATA%\com.tutornotes.organizer\
 ```
 
-Typical full path:
+That folder contains `tutor.db`, `media\`, and `pdfs\`. Restore probably requires a full restart.
 
-```
-C:\Users\<you>\AppData\Roaming\com.tutornotes.organizer\
-```
+## Google Sheets import
 
-That folder contains `tutor.db`, `media\` (pasted images), and `pdfs\` (imported PDFs). Restore by quitting the app and replacing the folder.
-
-## Import from Google Sheets
-
-1. In Sheets: **File → Download → Microsoft Excel (.xlsx)** (or CSV).
-2. In the app, open **Import**.
-3. Choose the file, pick the tab, choose Students / Topics / Resources, map columns, import.
-
-You can run the wizard once per tab.
+Import support for google sheet tables. Rigid, created for my own purposes.
 
 ## Shortcuts
 
