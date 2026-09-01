@@ -145,15 +145,40 @@ export function StudentCanvas({
         y: e.clientY - rect.top,
       });
     };
+    const onMiddleDown = (e: PointerEvent) => {
+      if (e.button !== 1) return;
+      e.preventDefault();
+      e.stopPropagation();
+      el.setPointerCapture(e.pointerId);
+      el.classList.add("student-canvas-panning");
+      panRef.current = {
+        startX: e.clientX,
+        startY: e.clientY,
+        origX: layoutRef.current.panX,
+        origY: layoutRef.current.panY,
+      };
+    };
+    const preventMiddleDefault = (e: MouseEvent) => {
+      if (e.button === 1) e.preventDefault();
+    };
     el.addEventListener("wheel", onNativeWheel, { passive: false });
-    return () => el.removeEventListener("wheel", onNativeWheel);
+    el.addEventListener("pointerdown", onMiddleDown, true);
+    el.addEventListener("mousedown", preventMiddleDefault, true);
+    el.addEventListener("auxclick", preventMiddleDefault, true);
+    return () => {
+      el.removeEventListener("wheel", onNativeWheel);
+      el.removeEventListener("pointerdown", onMiddleDown, true);
+      el.removeEventListener("mousedown", preventMiddleDefault, true);
+      el.removeEventListener("auxclick", preventMiddleDefault, true);
+    };
   }, []);
 
   const onViewportPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.button !== 0) return;
     if (e.target !== e.currentTarget && !(e.target as HTMLElement).dataset?.canvasBg) return;
-    if (e.button !== 0 && e.button !== 1) return;
     e.preventDefault();
-    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    e.currentTarget.setPointerCapture(e.pointerId);
+    e.currentTarget.classList.add("student-canvas-panning");
     panRef.current = {
       startX: e.clientX,
       startY: e.clientY,
@@ -174,6 +199,7 @@ export function StudentCanvas({
 
   const endPan = () => {
     panRef.current = null;
+    viewportRef.current?.classList.remove("student-canvas-panning");
   };
 
   const startMove = (e: React.PointerEvent, panel: PagePanel) => {
@@ -292,6 +318,7 @@ export function StudentCanvas({
         onPointerMove={onViewportPointerMove}
         onPointerUp={endPan}
         onPointerCancel={endPan}
+        onLostPointerCapture={endPan}
         onContextMenu={onCanvasContextMenu}
       >
         <div

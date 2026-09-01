@@ -128,7 +128,7 @@ export function TemplatesList() {
           }
         />
       ) : (
-        <div className="space-y-6">
+        <div className="space-y-4">
           {groups.map((group) => {
             const isCollapsed = !expanded.has(group.label);
             return (

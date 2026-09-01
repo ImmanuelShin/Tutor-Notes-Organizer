@@ -653,6 +653,11 @@ h3,
 .student-canvas-viewport:active {
   cursor: grabbing;
 }
+.student-canvas-viewport.student-canvas-panning,
+.student-canvas-viewport.student-canvas-panning * {
+  cursor: grabbing;
+  user-select: none;
+}
 .student-canvas-world {
   position: absolute;
   left: 0;

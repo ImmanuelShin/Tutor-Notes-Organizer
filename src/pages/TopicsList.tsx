@@ -280,7 +280,7 @@ export function TopicsList() {
   }, [dragging]);
 
   return (
-    <div>
+    <div className="mx-auto max-w-4xl">
       <PageHeader
         title="Topic templates"
         subtitle="Grouped by subject. Drag the grip to reorder. Right-click a topic to select or delete."
@@ -386,7 +386,7 @@ export function TopicsList() {
           }
         />
       ) : (
-        <div className="space-y-6">
+        <div className="space-y-4">
           {groups.map((group) => {
             const groupIds = group.items.map((t) => t.id);
             const groupAll = groupIds.every((id) => selected.has(id));
@@ -396,7 +396,7 @@ export function TopicsList() {
                 <div className="mb-2 flex items-center gap-3">
                   <button
                     type="button"
-                    className="inline-flex min-w-0 cursor-pointer items-center gap-1 text-left"
+                    className="-mx-1 flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 rounded-lg px-1 py-0.5 text-left hover:bg-[var(--bg-hover)]"
                     aria-expanded={!isCollapsed}
                     onClick={() =>
                       setExpanded((prev) => {
