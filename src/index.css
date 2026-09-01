@@ -745,3 +745,54 @@ h3,
   background: var(--bg-raised);
   box-shadow: var(--shadow);
 }
+
+.settings-window-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, #000 28%, transparent);
+  backdrop-filter: blur(10px);
+}
+.settings-window-panel {
+  display: flex;
+  width: 70%;
+  height: 70%;
+  flex-direction: column;
+  overflow: hidden;
+  box-shadow: 0 24px 64px color-mix(in srgb, #000 28%, transparent);
+}
+
+.resource-preview-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--bg-raised);
+  text-align: left;
+}
+.resource-preview-card:hover {
+  background: var(--bg-hover);
+}
+.resource-preview-media {
+  display: block;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
+  background: color-mix(in srgb, var(--bg) 70%, var(--bg-sidebar));
+}
+.resource-preview-media-pdf {
+  object-position: top center;
+}
+.resource-preview-fallback {
+  display: flex;
+  aspect-ratio: 4 / 3;
+  align-items: center;
+  justify-content: center;
+  color: var(--accent-2);
+  background: color-mix(in srgb, var(--bg) 70%, var(--bg-sidebar));
+}

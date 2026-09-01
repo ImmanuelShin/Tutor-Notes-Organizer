@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
-import { FilePlus, Image as ImageIcon, Link2, Plus } from "lucide-react";
+import { FilePlus, Image as ImageIcon, LayoutGrid, Link2, List, Plus, Trash2 } from "lucide-react";
 import {
   createResource,
   deleteResource,
@@ -19,8 +19,9 @@ import {
 } from "../lib/importFiles";
 import type { Resource, ResourceType } from "../types";
 import { parseTags, serializeTags } from "../lib/format";
-import { ConfirmButton, EmptyState, Modal, PageHeader, TagInput } from "../components/ui";
+import { EmptyState, Modal, PageHeader, TagInput } from "../components/ui";
 import { ResourceRow } from "../components/ResourceRow";
+import { ResourcePreviewCard } from "../components/ResourcePreviewCard";
 import { RichEditor } from "../components/RichEditor";
 
 const FILTERS: Array<{ id: ResourceType | "all"; label: string }> = [
@@ -44,6 +45,11 @@ export function ResourcesPage() {
   const [noteOpen, setNoteOpen] = useState(false);
   const [editing, setEditing] = useState<Resource | null>(null);
   const [dropActive, setDropActive] = useState(false);
+  const [view, setView] = useState<"list" | "preview">("list");
+  const [selectMode, setSelectMode] = useState(false);
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [pendingDelete, setPendingDelete] = useState<Resource[] | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   const reload = async () => {
     if (!studentsMode) {
@@ -129,6 +135,92 @@ export function ResourcesPage() {
     void reload();
   };
 
+  const toggle = (id: number) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleAll = (select: boolean) => {
+    setSelected(select ? new Set(rows.map((r) => r.id)) : new Set());
+  };
+
+  const enterSelect = (resource: Resource) => {
+    setSelectMode(true);
+    setSelected((prev) => new Set(prev).add(resource.id));
+  };
+
+  const exitSelect = () => {
+    setSelectMode(false);
+    setSelected(new Set());
+  };
+
+  const editResource = (resource: Resource) => {
+    if (resource.type === "link") setEditing(resource);
+    else nav(`/resources/${resource.id}`);
+  };
+
+  const confirmDelete = (resources: Resource[]) => {
+    if (!resources.length) return;
+    setPendingDelete(resources);
+  };
+
+  const runDelete = async () => {
+    if (!pendingDelete?.length) return;
+    setDeleting(true);
+    try {
+      for (const resource of pendingDelete) {
+        await deleteResource(resource.id);
+      }
+      setPendingDelete(null);
+      exitSelect();
+      await reload();
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  useEffect(() => {
+    const alive = new Set(rows.map((r) => r.id));
+    setSelected((prev) => {
+      let changed = false;
+      const next = new Set<number>();
+      for (const id of prev) {
+        if (alive.has(id)) next.add(id);
+        else changed = true;
+      }
+      return changed ? next : prev;
+    });
+  }, [rows]);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      if (pendingDelete || editing || linkOpen || noteOpen) return;
+      if (selectMode) {
+        e.preventDefault();
+        exitSelect();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [selectMode, pendingDelete, editing, linkOpen, noteOpen]);
+
+  const selectedRows = rows.filter((r) => selected.has(r.id));
+  const allSelected = rows.length > 0 && rows.every((r) => selected.has(r.id));
+
+  const resourceActions = (resource: Resource) => ({
+    selectMode,
+    selected: selected.has(resource.id),
+    onToggleSelect: () => toggle(resource.id),
+    onSelect: () => enterSelect(resource),
+    onEdit: () => editResource(resource),
+    onDelete: () => confirmDelete([resource]),
+  });
+
   const emptyTitle = studentsMode
     ? owners.length === 0
       ? "No student files"
@@ -141,7 +233,7 @@ export function ResourcesPage() {
     : "Import a PDF or image, paste a screenshot, save a weblink, or start a lecture note.";
 
   return (
-    <div>
+    <div className="mx-auto max-w-4xl">
       <PageHeader
         title="Resources"
         subtitle="PDFs and images stay in the app library. Paste a screenshot with Ctrl+V, or drop files on this page."
@@ -169,7 +261,7 @@ export function ResourcesPage() {
         }
       />
 
-      <div className="mb-4 flex flex-wrap gap-2">
+      <div className="mb-4 flex flex-wrap items-center gap-2">
         {FILTERS.map((f) => (
           <button
             key={f.id}
@@ -190,6 +282,26 @@ export function ResourcesPage() {
         >
           Students
         </button>
+        <span className="ml-auto flex gap-1">
+          <button
+            type="button"
+            className={`btn btn-small ${view === "list" ? "btn-primary" : ""}`}
+            onClick={() => setView("list")}
+            title="List view"
+          >
+            <List size={14} />
+            List
+          </button>
+          <button
+            type="button"
+            className={`btn btn-small ${view === "preview" ? "btn-primary" : ""}`}
+            onClick={() => setView("preview")}
+            title="Preview view"
+          >
+            <LayoutGrid size={14} />
+            Preview
+          </button>
+        </span>
       </div>
 
       {studentsMode ? (
@@ -215,6 +327,37 @@ export function ResourcesPage() {
         </div>
       ) : null}
 
+      {selectMode && rows.length > 0 ? (
+        <div className="mb-3 flex flex-wrap items-center gap-2">
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={allSelected}
+              onChange={() => toggleAll(!allSelected)}
+            />
+            Select all
+          </label>
+          {selected.size > 0 ? (
+            <>
+              <span className="text-sm text-[var(--ink-muted)]">{selected.size} selected</span>
+              <button type="button" className="btn btn-small" onClick={() => setSelected(new Set())}>
+                Clear
+              </button>
+              <button
+                type="button"
+                className="btn btn-small btn-danger"
+                onClick={() => confirmDelete(selectedRows)}
+              >
+                <Trash2 size={14} /> Delete selected
+              </button>
+            </>
+          ) : null}
+          <button type="button" className="btn btn-small ml-auto" onClick={exitSelect}>
+            Done
+          </button>
+        </div>
+      ) : null}
+
       {rows.length === 0 ? (
         <EmptyState
           title={emptyTitle}
@@ -227,33 +370,16 @@ export function ResourcesPage() {
             )
           }
         />
+      ) : view === "preview" ? (
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
+          {rows.map((r) => (
+            <ResourcePreviewCard key={r.id} resource={r} {...resourceActions(r)} />
+          ))}
+        </div>
       ) : (
         <div className="grid gap-2">
           {rows.map((r) => (
-            <ResourceRow
-              key={r.id}
-              resource={r}
-              trailing={
-                <div className="flex gap-1">
-                  <button
-                    type="button"
-                    className="btn btn-small"
-                    onClick={() => {
-                      if (r.type === "link") setEditing(r);
-                      else nav(`/resources/${r.id}`);
-                    }}
-                  >
-                    Edit
-                  </button>
-                  <ConfirmButton
-                    danger
-                    label="Delete"
-                    confirm="Confirm"
-                    onConfirm={() => void deleteResource(r.id).then(reload)}
-                  />
-                </div>
-              }
-            />
+            <ResourceRow key={r.id} resource={r} {...resourceActions(r)} />
           ))}
         </div>
       )}
@@ -279,6 +405,43 @@ export function ResourcesPage() {
         />
       ) : null}
       {editing ? <ResourceEditor resource={editing} onClose={closeEditor} /> : null}
+      {pendingDelete ? (
+        <Modal title="Delete resources" onClose={() => !deleting && setPendingDelete(null)}>
+          <p className="text-sm text-[var(--ink-muted)]">
+            This permanently removes{" "}
+            {pendingDelete.length === 1
+              ? `“${pendingDelete[0].title}”`
+              : `${pendingDelete.length} resources`}
+            {pendingDelete.some((r) => r.file_path) ? ", including stored files" : ""}. This cannot be
+            undone.
+          </p>
+          {pendingDelete.length > 1 ? (
+            <ul className="mt-3 max-h-40 overflow-auto text-sm">
+              {pendingDelete.map((r) => (
+                <li key={r.id}>{r.title}</li>
+              ))}
+            </ul>
+          ) : null}
+          <div className="mt-4 flex justify-end gap-2">
+            <button
+              type="button"
+              className="btn"
+              disabled={deleting}
+              onClick={() => setPendingDelete(null)}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="btn btn-danger"
+              disabled={deleting}
+              onClick={() => void runDelete()}
+            >
+              {deleting ? "Deleting…" : "Delete"}
+            </button>
+          </div>
+        </Modal>
+      ) : null}
     </div>
   );
 }

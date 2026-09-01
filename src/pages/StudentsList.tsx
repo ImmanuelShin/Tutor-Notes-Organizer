@@ -48,7 +48,7 @@ export function StudentsList() {
   };
 
   return (
-    <div>
+    <div className="mx-auto max-w-4xl">
       <PageHeader
         title="Students"
         subtitle="One page per person — notes, sessions, and a workspace."

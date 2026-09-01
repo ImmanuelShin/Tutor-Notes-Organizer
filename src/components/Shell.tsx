@@ -5,14 +5,15 @@ import {
   ClipboardList,
   FileStack,
   Moon,
-  Rows3,
   Search,
+  Settings,
   Sun,
   Upload,
   UserRound,
 } from "lucide-react";
 import { useSettings } from "../context/SettingsContext";
 import { CommandPalette } from "./CommandPalette";
+import { SettingsWindow } from "./SettingsWindow";
 import { cn } from "../lib/format";
 import { isFocusedChrome, setAppWindowTitle } from "../lib/windows";
 
@@ -40,8 +41,9 @@ function defaultTitle(pathname: string): string | null {
 export function Shell() {
   const nav = useNavigate();
   const location = useLocation();
-  const { theme, density, setTheme, setDensity } = useSettings();
+  const { theme, setTheme } = useSettings();
   const [palette, setPalette] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const focused = isFocusedChrome();
 
   useEffect(() => {
@@ -124,17 +126,15 @@ export function Shell() {
               <button
                 type="button"
                 className="btn btn-small flex-1"
-                onClick={() =>
-                  setDensity(density === "compact" ? "comfortable" : "compact")
-                }
-                title="Toggle density"
+                onClick={() => setSettingsOpen(true)}
+                title="Settings"
               >
-                <Rows3 size={14} />
-                {density === "compact" ? "Roomy" : "Compact"}
+                <Settings size={14} />
+                Settings
               </button>
             </div>
             <p className="px-1 text-[10px] leading-4 text-[var(--ink-muted)]">
-              Archive instead of delete. Backup the app data folder from Settings in Import.
+              Archive instead of delete. Backup options will live in Settings.
             </p>
           </div>
         </aside>
@@ -143,13 +143,14 @@ export function Shell() {
         className={cn(
           "min-w-0 flex-1",
           /^\/students\/\d+/.test(location.pathname)
-            ? "flex min-h-0 flex-col overflow-hidden px-[var(--pad)] pt-[var(--pad)] pb-0"
+            ? "flex min-h-0 flex-col overflow-hidden p-[var(--pad)]"
             : "overflow-auto p-[var(--pad)]",
         )}
       >
         <Outlet />
       </main>
       <CommandPalette open={palette} onClose={() => setPalette(false)} />
+      {settingsOpen ? <SettingsWindow onClose={() => setSettingsOpen(false)} /> : null}
     </div>
   );
 }
