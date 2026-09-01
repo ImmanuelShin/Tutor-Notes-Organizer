@@ -1,6 +1,6 @@
 # Tutor Notes
 
-A local Windows desktop app for tutoring notes. Uses local storage only.
+A local Windows desktop app for tutoring notes. Uses local storage only. Made with cursor.
 
 ## Run in development
 
