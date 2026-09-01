@@ -51,12 +51,6 @@ export function CommandPalette({
         run: () => nav("/resources"),
       },
       {
-        id: "import",
-        title: "Paste a table",
-        hint: "",
-        run: () => nav("/import"),
-      },
-      {
         id: "new-student",
         title: "New student",
         hint: "",
@@ -173,7 +167,7 @@ export function CommandPalette({
     if (key.startsWith("template")) return <ClipboardList size={16} />;
     if (key.startsWith("resource")) return <FileStack size={16} />;
     if (key.includes("new")) return <Plus size={16} />;
-    if (key === "import") return <Upload size={16} />;
+    if (key === "paste-topics") return <Upload size={16} />;
     return <BookOpen size={16} />;
   };
 

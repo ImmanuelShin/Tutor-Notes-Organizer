@@ -8,7 +8,6 @@ import {
   Search,
   Settings,
   Sun,
-  Upload,
   UserRound,
 } from "lucide-react";
 import { useSettings } from "../context/SettingsContext";
@@ -22,7 +21,6 @@ const NAV = [
   { to: "/topics", label: "Topics", icon: BookOpen },
   { to: "/templates", label: "Templates", icon: ClipboardList },
   { to: "/resources", label: "Resources", icon: FileStack },
-  { to: "/import", label: "Paste", icon: Upload },
 ];
 
 function defaultTitle(pathname: string): string | null {
@@ -34,7 +32,6 @@ function defaultTitle(pathname: string): string | null {
   if (pathname.startsWith("/topics")) return "Topics";
   if (pathname.startsWith("/templates")) return "Templates";
   if (pathname.startsWith("/resources")) return "Resources";
-  if (pathname.startsWith("/import")) return "Paste";
   return "Tutor Notes";
 }
 

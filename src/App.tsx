@@ -9,7 +9,6 @@ import { TemplatesList } from "./pages/TemplatesList";
 import { TemplateDetail } from "./pages/TemplateDetail";
 import { ResourcesPage } from "./pages/ResourcesPage";
 import { ResourceDetail } from "./pages/ResourceDetail";
-import { ImportWizard } from "./pages/ImportWizard";
 
 export default function App() {
   return (
@@ -26,7 +25,7 @@ export default function App() {
             <Route path="/templates/:id" element={<TemplateDetail />} />
             <Route path="/resources" element={<ResourcesPage />} />
             <Route path="/resources/:id" element={<ResourceDetail />} />
-            <Route path="/import" element={<ImportWizard />} />
+            <Route path="/import" element={<Navigate to="/topics?paste=1" replace />} />
           </Route>
         </Routes>
       </HashRouter>
