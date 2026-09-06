@@ -11,10 +11,11 @@ import {
   setActiveTab,
   updateWorkspaceTab,
 } from "../lib/workspace";
-import { ConfirmButton } from "./ui";
+import { ConfirmButton, Modal } from "./ui";
 import { DataGrid } from "./DataGrid";
 import { FreeformNotes } from "./FreeformNotes";
 import { ChecklistPane } from "./ChecklistPane";
+import { PasteWorksheet } from "./PasteWorksheet";
 
 const ADD_KINDS: { kind: WorkspaceTabKind; label: string }[] = [
   { kind: "table", label: "Table" },
@@ -37,7 +38,10 @@ export function StudentWorkspace({
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState("");
   const [addOpen, setAddOpen] = useState(false);
+  const [pasting, setPasting] = useState(false);
+  const [gridEpoch, setGridEpoch] = useState(0);
   const addRef = useRef<HTMLDivElement>(null);
+  const pasteTabIdRef = useRef(tab.id);
 
   const commit = (next: Workspace) => onChange(next);
 
@@ -130,6 +134,18 @@ export function StudentWorkspace({
               onConfirm={() => commit(deleteWorkspaceTab(workspaceRef.current, tab.id))}
             />
           ) : null}
+          {tab.kind === "table" ? (
+            <button
+              type="button"
+              className="btn btn-small"
+              onClick={() => {
+                pasteTabIdRef.current = tab.id;
+                setPasting(true);
+              }}
+            >
+              Paste table
+            </button>
+          ) : null}
           {tab.kind === "table" || tab.kind === "checklist" ? (
             <button type="button" className="btn btn-small" onClick={onImport}>
               Import template
@@ -141,12 +157,12 @@ export function StudentWorkspace({
       {tab.kind === "table" ? (
         <div className="flex min-h-0 flex-1 flex-col">
           <p className="mb-3 shrink-0 text-sm text-[var(--ink-muted)]">
-            Import a subject group — each topic becomes one row. Right-click a cell to split notes
-            by day so the grid stays compact. Double-click a header to rename it. Double-click a tab
-            to rename it.
+            Import a subject group — each topic becomes one row. Paste a Google Sheets table to fill
+            Assessment notes on matching topics. Right-click a cell to split notes by day so the
+            grid stays compact. Double-click a header to rename it. Double-click a tab to rename it.
           </p>
           <DataGrid
-            key={tab.id}
+            key={`${tab.id}-${gridEpoch}`}
             value={tab.table ?? emptyWorksheet()}
             onChange={(table) => commit(updateWorkspaceTab(workspaceRef.current, tab.id, { table }))}
           />
@@ -171,6 +187,22 @@ export function StudentWorkspace({
             onChange={(checklist) => commit(updateWorkspaceTab(workspaceRef.current, tab.id, { checklist }))}
           />
         </div>
+      ) : null}
+
+      {pasting ? (
+        <Modal title="Paste table from Sheets" onClose={() => setPasting(false)} wide>
+          <PasteWorksheet
+            table={
+              workspace.tabs.find((t) => t.id === pasteTabIdRef.current)?.table ??
+              tab.table ??
+              emptyWorksheet()
+            }
+            onApply={(table) => {
+              commit(updateWorkspaceTab(workspaceRef.current, pasteTabIdRef.current, { table }));
+              setGridEpoch((n) => n + 1);
+            }}
+          />
+        </Modal>
       ) : null}
     </div>
   );

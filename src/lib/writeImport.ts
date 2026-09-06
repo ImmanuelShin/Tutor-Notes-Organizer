@@ -5,14 +5,19 @@ import {
   createGoal,
   createSubUnit,
   createTopic,
+  deleteTopics,
+  listAssessments,
+  listExamples,
+  listGoals,
+  listSubUnits,
   listTopics,
   nextTopicSort,
   reorderTopics,
   updateExample,
 } from "../db/topics";
 import { createResource } from "../db/resources";
-import { serializeTags, textToDoc } from "./format";
-import { topicKey, type TopicImportEntry } from "./importTables";
+import { docToText, serializeTags, textToDoc } from "./format";
+import { subjectGroupLabel, topicKey, type TopicImportEntry } from "./importTables";
 
 export type PasteEntity = "students" | "topics" | "resources";
 
@@ -132,25 +137,155 @@ export function gridToTopicEntries(
   return entries;
 }
 
-export async function writeTopicEntries(entries: TopicImportEntry[]): Promise<number> {
-  const existing = [
+export type TopicImportMode = "replace-group" | "merge" | "add-only";
+
+export type TopicImportConflict = {
+  label: string;
+  existingCount: number;
+  matchingTitles: number;
+};
+
+export type TopicImportResult = {
+  created: number;
+  updated: number;
+  skipped: number;
+  deleted: number;
+};
+
+function subjectKeyOf(subject: string): string {
+  return subject.trim().toLowerCase();
+}
+
+function normText(value: string): string {
+  return value.trim().toLowerCase();
+}
+
+async function loadAllTopics() {
+  return [
     ...(await listTopics({ archived: false })),
     ...(await listTopics({ archived: true })),
   ];
+}
+
+export async function detectTopicImportConflicts(
+  entries: TopicImportEntry[],
+): Promise<TopicImportConflict[]> {
+  const existing = await loadAllTopics();
+  const existingBySubject = new Map<string, typeof existing>();
+  for (const topic of existing) {
+    const key = subjectKeyOf(topic.subject);
+    const list = existingBySubject.get(key) ?? [];
+    list.push(topic);
+    existingBySubject.set(key, list);
+  }
+
+  const imported = new Map<string, { label: string; titles: Set<string> }>();
+  for (const row of entries) {
+    const key = subjectKeyOf(row.subject);
+    const title = row.title.trim();
+    if (!title) continue;
+    let group = imported.get(key);
+    if (!group) {
+      group = { label: subjectGroupLabel(row.subject), titles: new Set() };
+      imported.set(key, group);
+    }
+    group.titles.add(title.toLowerCase());
+  }
+
+  const conflicts: TopicImportConflict[] = [];
+  for (const [key, group] of imported) {
+    const present = existingBySubject.get(key) ?? [];
+    if (!present.length) continue;
+    const existingTitles = new Set(present.map((t) => t.title.trim().toLowerCase()));
+    let matchingTitles = 0;
+    for (const title of group.titles) {
+      if (existingTitles.has(title)) matchingTitles += 1;
+    }
+    conflicts.push({
+      label: group.label,
+      existingCount: present.length,
+      matchingTitles,
+    });
+  }
+  return conflicts;
+}
+
+export async function writeTopicEntries(
+  entries: TopicImportEntry[],
+  mode: TopicImportMode,
+): Promise<TopicImportResult> {
+  let existing = await loadAllTopics();
+  const importSubjects = new Set(entries.map((row) => subjectKeyOf(row.subject)));
+  let deleted = 0;
+
+  if (mode === "replace-group") {
+    const toDelete = existing.filter((t) => importSubjects.has(subjectKeyOf(t.subject)));
+    deleted = toDelete.length;
+    if (toDelete.length) await deleteTopics(toDelete.map((t) => t.id));
+    existing = existing.filter((t) => !importSubjects.has(subjectKeyOf(t.subject)));
+  }
+
   const byKey = new Map(existing.map((t) => [topicKey(t.subject, t.title), t.id]));
-  const preexistingSubjects = new Set(existing.map((t) => t.subject.trim().toLowerCase()));
+  const preexistingIds = new Set(existing.map((t) => t.id));
+  const preexistingSubjects = new Set(existing.map((t) => subjectKeyOf(t.subject)));
   const unitCache = new Map<string, number>();
+  const hydratedTopics = new Set<number>();
+  const hydratedUnits = new Set<number>();
+  const goalTexts = new Map<number, Set<string>>();
+  const assessmentTexts = new Map<number, Set<string>>();
+  const exampleTexts = new Map<number, Set<string>>();
   const nextSortBySubject = new Map<string, number>();
   const createdBySubject = new Map<string, number[]>();
+  const skippedKeys = new Set<string>();
+  const seenExisting = new Set<number>();
+  const nestedAdded = new Set<number>();
   let created = 0;
+
+  const hydrateTopic = async (topicId: number) => {
+    if (hydratedTopics.has(topicId)) return;
+    hydratedTopics.add(topicId);
+    const units = await listSubUnits(topicId);
+    for (const unit of units) {
+      unitCache.set(`${topicId}::${normText(unit.title)}`, unit.id);
+    }
+  };
+
+  const ensureUnitSets = (unitId: number) => {
+    if (!goalTexts.has(unitId)) goalTexts.set(unitId, new Set());
+    if (!assessmentTexts.has(unitId)) assessmentTexts.set(unitId, new Set());
+    if (!exampleTexts.has(unitId)) exampleTexts.set(unitId, new Set());
+  };
+
+  const hydrateUnit = async (unitId: number) => {
+    if (hydratedUnits.has(unitId)) return;
+    hydratedUnits.add(unitId);
+    const [goals, assessments, examples] = await Promise.all([
+      listGoals(unitId),
+      listAssessments(unitId),
+      listExamples(unitId),
+    ]);
+    goalTexts.set(unitId, new Set(goals.map((g) => normText(g.text))));
+    assessmentTexts.set(unitId, new Set(assessments.map((a) => normText(a.text))));
+    exampleTexts.set(
+      unitId,
+      new Set(examples.map((ex) => normText(docToText(ex.body) || ex.title))),
+    );
+  };
 
   for (const row of entries) {
     const title = row.title.trim();
     if (!title) continue;
     const subject = row.subject.trim();
     const key = topicKey(subject, title);
-    const subjectKey = subject.toLowerCase();
+    const subjectKey = subjectKeyOf(subject);
     let topicId = byKey.get(key);
+    const existed = Boolean(topicId && preexistingIds.has(topicId));
+
+    if (existed && mode === "add-only") {
+      skippedKeys.add(key);
+      continue;
+    }
+
     if (!topicId) {
       if (!nextSortBySubject.has(subjectKey)) {
         nextSortBySubject.set(
@@ -167,19 +302,70 @@ export async function writeTopicEntries(entries: TopicImportEntry[]): Promise<nu
       createdBySubject.set(subjectKey, createdIds);
       created += 1;
     }
+
+    const mergeInto = mode === "merge" && existed;
+    if (mergeInto) {
+      seenExisting.add(topicId);
+      await hydrateTopic(topicId);
+    }
+
     const unitTitle = row.unit.trim() || "General";
-    const unitKey = `${topicId}::${unitTitle.toLowerCase()}`;
+    const unitKey = `${topicId}::${normText(unitTitle)}`;
     let unitId = unitCache.get(unitKey);
     if (!unitId) {
       unitId = await createSubUnit(topicId, unitTitle);
       unitCache.set(unitKey, unitId);
+      ensureUnitSets(unitId);
+      hydratedUnits.add(unitId);
+      if (mergeInto) nestedAdded.add(topicId);
+    } else if (mergeInto) {
+      await hydrateUnit(unitId);
     }
-    if (row.learningGoal.trim()) await createGoal(unitId, row.learningGoal);
-    if (row.assessment.trim()) await createAssessment(unitId, row.assessment);
-    if (row.example.trim()) {
-      const exId = await createExample(unitId, "Imported example");
-      await updateExample(exId, { body: textToDoc(row.example) });
-    }
+
+    const addGoal = async () => {
+      const text = row.learningGoal.trim();
+      if (!text) return;
+      if (mergeInto) {
+        const set = goalTexts.get(unitId!) ?? new Set();
+        goalTexts.set(unitId!, set);
+        const n = normText(text);
+        if (set.has(n)) return;
+        set.add(n);
+        nestedAdded.add(topicId!);
+      }
+      await createGoal(unitId!, text);
+    };
+    const addAssessment = async () => {
+      const text = row.assessment.trim();
+      if (!text) return;
+      if (mergeInto) {
+        const set = assessmentTexts.get(unitId!) ?? new Set();
+        assessmentTexts.set(unitId!, set);
+        const n = normText(text);
+        if (set.has(n)) return;
+        set.add(n);
+        nestedAdded.add(topicId!);
+      }
+      await createAssessment(unitId!, text);
+    };
+    const addExample = async () => {
+      const text = row.example.trim();
+      if (!text) return;
+      if (mergeInto) {
+        const set = exampleTexts.get(unitId!) ?? new Set();
+        exampleTexts.set(unitId!, set);
+        const n = normText(text);
+        if (set.has(n)) return;
+        set.add(n);
+        nestedAdded.add(topicId!);
+      }
+      const exId = await createExample(unitId!, "Imported example");
+      await updateExample(exId, { body: textToDoc(text) });
+    };
+
+    await addGoal();
+    await addAssessment();
+    await addExample();
   }
 
   for (const [subjectKey, ids] of createdBySubject) {
@@ -187,7 +373,13 @@ export async function writeTopicEntries(entries: TopicImportEntry[]): Promise<nu
     await reorderTopics(ids);
   }
 
-  return created;
+  const skippedExisting = [...seenExisting].filter((id) => !nestedAdded.has(id)).length;
+  return {
+    created,
+    updated: nestedAdded.size,
+    skipped: skippedKeys.size + skippedExisting,
+    deleted,
+  };
 }
 
 export async function writeStudentRows(

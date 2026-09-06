@@ -19,6 +19,7 @@ export function TopicsList() {
   const [subjects, setSubjects] = useState<string[]>([]);
   const [creating, setCreating] = useState(params.get("new") === "1");
   const [pasting, setPasting] = useState(params.get("paste") === "1");
+  const [pasteSubject, setPasteSubject] = useState<string | undefined>(undefined);
   const [title, setTitle] = useState("");
   const [subject, setSubject] = useState("");
   const [selected, setSelected] = useState<Set<number>>(new Set());
@@ -63,8 +64,14 @@ export function TopicsList() {
     if (params.get("paste") === "1") setPasting(true);
   }, [params]);
 
+  const openPaste = (groupSubject?: string) => {
+    setPasteSubject(groupSubject);
+    setPasting(true);
+  };
+
   const closePaste = () => {
     setPasting(false);
+    setPasteSubject(undefined);
     if (params.get("paste")) {
       params.delete("paste");
       setParams(params, { replace: true });
@@ -300,7 +307,7 @@ export function TopicsList() {
               />
               Archived
             </label>
-            <button type="button" className="btn" onClick={() => setPasting(true)}>
+            <button type="button" className="btn" onClick={() => openPaste()}>
               <ClipboardPaste size={16} /> Paste table
             </button>
             <button type="button" className="btn btn-primary" onClick={() => setCreating(true)}>
@@ -375,7 +382,7 @@ export function TopicsList() {
           action={
             !archived ? (
               <div className="flex flex-wrap gap-2">
-                <button type="button" className="btn" onClick={() => setPasting(true)}>
+                <button type="button" className="btn" onClick={() => openPaste()}>
                   Paste table
                 </button>
                 <button type="button" className="btn btn-primary" onClick={() => setCreating(true)}>
@@ -413,6 +420,17 @@ export function TopicsList() {
                       {group.items.length}
                     </span>
                   </button>
+                  {!selectMode && !archived ? (
+                    <button
+                      type="button"
+                      className="btn btn-quiet btn-small"
+                      onClick={() =>
+                        openPaste(group.label === "Unsorted" ? "" : group.label)
+                      }
+                    >
+                      <ClipboardPaste size={14} /> Paste table
+                    </button>
+                  ) : null}
                   {selectMode ? (
                     <button
                       type="button"
@@ -566,7 +584,9 @@ export function TopicsList() {
       {pasting ? (
         <Modal title="Paste table from Sheets" onClose={closePaste} wide>
           <PasteTable
+            key={pasteSubject === undefined ? "global" : pasteSubject || "unsorted"}
             lockedEntity="topics"
+            defaultSubject={pasteSubject}
             onImported={() => {
               void reload();
             }}

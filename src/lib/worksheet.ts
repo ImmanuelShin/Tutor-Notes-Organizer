@@ -425,10 +425,13 @@ export async function recordsFromTopicGroup(topicIds: number[]): Promise<Record<
   return records;
 }
 
-export function appendTemplateRows(ws: Worksheet, records: Record<string, string>[]): Worksheet {
-  if (!records.length) return ws;
+export function ensureTemplateColumns(ws: Worksheet): {
+  table: Worksheet;
+  keyToId: Record<string, string>;
+} {
   const columns = [...ws.columns];
   const keyToId: Record<string, string> = {};
+  let added = false;
   for (const spec of TEMPLATE_COLUMN_SPECS) {
     const existing = columns.find(
       (c) => c.id === spec.key || c.title.toLowerCase() === spec.title.toLowerCase(),
@@ -438,8 +441,30 @@ export function appendTemplateRows(ws: Worksheet, records: Record<string, string
     } else {
       columns.push({ id: spec.key, title: spec.title, width: spec.width });
       keyToId[spec.key] = spec.key;
+      added = true;
     }
   }
+  if (!added) return { table: ws, keyToId };
+  return {
+    table: {
+      ...ws,
+      columns,
+      rows: ws.rows.map((r) => {
+        const cells = { ...r.cells };
+        for (const col of columns) {
+          if (cells[col.id] === undefined) cells[col.id] = "";
+        }
+        return { ...r, cells };
+      }),
+    },
+    keyToId,
+  };
+}
+
+export function appendTemplateRows(ws: Worksheet, records: Record<string, string>[]): Worksheet {
+  if (!records.length) return ws;
+  const { table, keyToId } = ensureTemplateColumns(ws);
+  const columns = table.columns;
   const newRows: WorksheetRow[] = records.map((rec) => ({
     id: uid(),
     cells: Object.fromEntries(
@@ -449,6 +474,6 @@ export function appendTemplateRows(ws: Worksheet, records: Record<string, string
       }),
     ),
   }));
-  const rows = isWorksheetBlank(ws) ? newRows : [...ws.rows, ...newRows];
+  const rows = isWorksheetBlank(ws) ? newRows : [...table.rows, ...newRows];
   return { columns, rows: rows.length ? rows : [emptyRow(columns)] };
 }

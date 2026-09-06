@@ -3,6 +3,7 @@ import { ClipboardPaste } from "lucide-react";
 import { listSubjects } from "../db/topics";
 import { columnLabel, parseClipboardTable } from "../lib/parseClipboard";
 import {
+  detectTopicImportConflicts,
   guessMapping,
   gridToTopicEntries,
   PASTE_FIELDS,
@@ -10,24 +11,71 @@ import {
   writeStudentRows,
   writeTopicEntries,
   type PasteEntity,
+  type TopicImportConflict,
+  type TopicImportMode,
+  type TopicImportResult,
 } from "../lib/writeImport";
 import { SubjectCombobox } from "./ui";
 
+const IMPORT_MODES: { value: TopicImportMode; label: string; hint: (conflicts: TopicImportConflict[]) => string }[] = [
+  {
+    value: "replace-group",
+    label: "Replace group",
+    hint: (conflicts) =>
+      `Deletes every topic in ${conflictLabels(conflicts)} (including ones not in this table) and recreates them from the paste. Students using those topics lose the assignment and any goal checkoffs.`,
+  },
+  {
+    value: "merge",
+    label: "Merge",
+    hint: () =>
+      "Keeps existing topics. Matching sub-units, goals, examples, and assessments are reused; new ones from the table are added. Nothing is deleted.",
+  },
+  {
+    value: "add-only",
+    label: "Add only",
+    hint: () =>
+      "Creates topics that are not already in the group. Existing topics are left unchanged.",
+  },
+];
+
+function conflictLabels(conflicts: TopicImportConflict[]): string {
+  if (conflicts.length === 1) return conflicts[0].label;
+  if (conflicts.length === 2) return `${conflicts[0].label} and ${conflicts[1].label}`;
+  return conflicts.map((c) => c.label).join(", ");
+}
+
+function formatTopicImportLog(result: TopicImportResult, subject: string): string {
+  const bits: string[] = [];
+  if (result.deleted) {
+    bits.push(`deleted ${result.deleted} existing topic${result.deleted === 1 ? "" : "s"}`);
+  }
+  if (result.created) bits.push(`created ${result.created}`);
+  if (result.updated) bits.push(`updated ${result.updated}`);
+  if (result.skipped) bits.push(`skipped ${result.skipped} existing`);
+  if (!bits.length) return "Nothing to import.";
+  const into = subject.trim() ? ` into ${subject.trim()}` : "";
+  return `Imported: ${bits.join(", ")}${into}.`;
+}
+
 export function PasteTable({
   lockedEntity,
+  defaultSubject,
   onImported,
 }: {
   lockedEntity?: PasteEntity;
+  defaultSubject?: string;
   onImported?: () => void;
 }) {
   const [raw, setRaw] = useState("");
   const [entity, setEntity] = useState<PasteEntity>(lockedEntity ?? "topics");
   const [firstRowHeaders, setFirstRowHeaders] = useState(true);
   const [mapping, setMapping] = useState<string[]>([]);
-  const [subject, setSubject] = useState("");
+  const [subject, setSubject] = useState(defaultSubject ?? "");
   const [subjects, setSubjects] = useState<string[]>([]);
   const [log, setLog] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [importMode, setImportMode] = useState<TopicImportMode | null>(null);
+  const [conflicts, setConflicts] = useState<TopicImportConflict[]>([]);
 
   const grid = useMemo(() => parseClipboardTable(raw), [raw]);
   const headers = useMemo(() => {
@@ -42,9 +90,29 @@ export function PasteTable({
     return firstRowHeaders ? grid.slice(1) : grid;
   }, [grid, firstRowHeaders]);
 
+  const topicEntries = useMemo(() => {
+    if (entity !== "topics" || !dataRows.length) return [];
+    return gridToTopicEntries(dataRows, mapping, subject);
+  }, [entity, dataRows, mapping, subject]);
+
   useEffect(() => {
     void listSubjects().then(setSubjects);
   }, []);
+
+  useEffect(() => {
+    setImportMode(null);
+    if (!topicEntries.length) {
+      setConflicts([]);
+      return;
+    }
+    let cancelled = false;
+    void detectTopicImportConflicts(topicEntries).then((next) => {
+      if (!cancelled) setConflicts(next);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [topicEntries]);
 
   useEffect(() => {
     if (lockedEntity) setEntity(lockedEntity);
@@ -84,14 +152,26 @@ export function PasteTable({
     try {
       let count = 0;
       if (entity === "topics") {
-        const entries = gridToTopicEntries(dataRows, mapping, subject);
+        const entries = topicEntries.length
+          ? topicEntries
+          : gridToTopicEntries(dataRows, mapping, subject);
         if (!entries.length) {
           setLog("No topic rows found. Map Topic title and check that the first data row has a topic.");
           setBusy(false);
           return;
         }
-        count = await writeTopicEntries(entries);
-        setLog(`Imported ${count} topic template${count === 1 ? "" : "s"}${subject ? ` into ${subject}` : ""}.`);
+        const nextConflicts = await detectTopicImportConflicts(entries);
+        if (nextConflicts.length && !importMode) {
+          setConflicts(nextConflicts);
+          setLog("This subject already has topics. Choose how to import, then click Import again.");
+          setBusy(false);
+          return;
+        }
+        const result = await writeTopicEntries(entries, importMode ?? "add-only");
+        setLog(formatTopicImportLog(result, subject));
+        setImportMode(null);
+        setConflicts(await detectTopicImportConflicts(entries));
+        void listSubjects().then(setSubjects);
       } else if (entity === "students") {
         count = await writeStudentRows(dataRows, mapping);
         setLog(`Imported ${count} student${count === 1 ? "" : "s"}.`);
@@ -232,8 +312,57 @@ export function PasteTable({
             </p>
           </div>
 
+          {entity === "topics" && conflicts.length > 0 ? (
+            <fieldset className="space-y-2 rounded-xl border border-[var(--line)] p-3">
+              <legend className="text-sm font-medium">
+                {conflicts.length === 1
+                  ? `${conflicts[0].label} already has ${conflicts[0].existingCount} topic${
+                      conflicts[0].existingCount === 1 ? "" : "s"
+                    }`
+                  : "These subjects already have topics"}
+              </legend>
+              {conflicts.length > 1 ? (
+                <ul className="text-sm text-[var(--ink-muted)]">
+                  {conflicts.map((c) => (
+                    <li key={c.label}>
+                      {c.label}: {c.existingCount} existing, {c.matchingTitles} title
+                      {c.matchingTitles === 1 ? "" : "s"} match
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-sm text-[var(--ink-muted)]">
+                  {conflicts[0].matchingTitles} title
+                  {conflicts[0].matchingTitles === 1 ? "" : "s"} in this table already exist.
+                </p>
+              )}
+              {IMPORT_MODES.map((opt) => (
+                <label key={opt.value} className="flex items-start gap-2 text-sm">
+                  <input
+                    type="radio"
+                    className="mt-1"
+                    name="topic-import-mode"
+                    checked={importMode === opt.value}
+                    onChange={() => setImportMode(opt.value)}
+                  />
+                  <span>
+                    <span className="font-medium">{opt.label}</span>
+                    <span className="mt-0.5 block text-[var(--ink-muted)]">
+                      {opt.hint(conflicts)}
+                    </span>
+                  </span>
+                </label>
+              ))}
+            </fieldset>
+          ) : null}
+
           <div className="flex items-center gap-3">
-            <button type="button" className="btn btn-primary" disabled={busy} onClick={() => void run()}>
+            <button
+              type="button"
+              className="btn btn-primary"
+              disabled={busy || (entity === "topics" && conflicts.length > 0 && !importMode)}
+              onClick={() => void run()}
+            >
               {busy ? "Importing…" : `Import ${dataRows.length} rows`}
             </button>
             {log ? <span className="text-sm">{log}</span> : null}
