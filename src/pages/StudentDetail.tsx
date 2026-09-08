@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { ArrowLeft, ChevronDown, ChevronRight, Play, Square } from "lucide-react";
+import { useSettings } from "../context/SettingsContext";
 import { getStudent, updateStudent } from "../db/students";
 import { createSession, deleteSession, listSessions, updateSession } from "../db/sessions";
 import { listTopics } from "../db/topics";
@@ -33,6 +34,7 @@ import {
   setExtraWorkspace,
   setRowDoneInWorkspace,
   updateWorkspaceTab,
+  workspaceNoteBoxes,
   workspaceTables,
 } from "../lib/workspace";
 import { applyChecklistToWorkspace } from "../lib/templates";
@@ -66,6 +68,7 @@ import { setAppWindowTitle } from "../lib/windows";
 export function StudentDetail() {
   const { id } = useParams();
   const nav = useNavigate();
+  const { syncNow } = useSettings();
   const studentId = Number(id);
   const [student, setStudent] = useState<Student | null>(null);
   const [sessions, setSessions] = useState<Session[]>([]);
@@ -266,6 +269,7 @@ export function StudentDetail() {
   };
 
   const tables = workspaceTables(workspace);
+  const noteBoxes = workspaceNoteBoxes(workspace);
   const sessionStartedAt = student.session_started_at || null;
   const sessionLive = Boolean(sessionStartedAt);
 
@@ -275,6 +279,7 @@ export function StudentDetail() {
       startedAt: clearStartOnSave ? sessionStartedAt : null,
       now,
       ws: tables,
+      notes: noteBoxes,
     });
     const duration = sessionStartedAt && clearStartOnSave
       ? sessionDurationMinutes(range.from, range.to)
@@ -283,7 +288,7 @@ export function StudentDetail() {
       ? toLocalInput(range.from)
       : nowLocalInput();
     setSessionDraft({
-      notes: suggestedSessionNotes(tables, range),
+      notes: suggestedSessionNotes(tables, range, noteBoxes),
       occurred,
       duration: String(duration),
       clearStartOnSave,
@@ -526,11 +531,11 @@ export function StudentDetail() {
             void reload();
           }}
           onSaved={async () => {
-            if (sessionDraft?.clearStartOnSave || dirtyRef.current) {
-              await persistStudent(
-                sessionDraft?.clearStartOnSave ? { session_started_at: null } : {},
-              );
+            const ended = Boolean(sessionDraft?.clearStartOnSave);
+            if (ended || dirtyRef.current) {
+              await persistStudent(ended ? { session_started_at: null } : {});
             }
+            if (ended) await syncNow();
           }}
         />
       ) : null}
@@ -762,7 +767,7 @@ function SessionModal({
         <div className="mb-1 text-sm">Session notes</div>
         {!session && draft && !isEmptyDoc(draft.notes) ? (
           <p className="mb-2 text-xs text-[var(--ink-muted)]">
-            Suggested from worksheet edits in this sitting. Edit freely before saving.
+            Suggested from worksheet edits and notes in this sitting. Edit freely before saving.
           </p>
         ) : null}
         <RichEditor

@@ -4,11 +4,22 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { initDb } from "../db/client";
 import { loadUiSettings, setSetting } from "../db/search";
+import {
+  acquireSyncLock,
+  heartbeatSyncLock,
+  pushLibrary,
+  releaseSyncLock,
+  startupPull,
+  syncNow as runSyncNow,
+  type SyncStatus,
+} from "../lib/sync";
 import type { Density, Theme } from "../types";
 
 type Settings = {
@@ -16,6 +27,8 @@ type Settings = {
   error: string | null;
   theme: Theme;
   density: Density;
+  syncing: boolean;
+  syncNow: () => Promise<SyncStatus>;
   setTheme: (theme: Theme) => void;
   setDensity: (density: Density) => void;
 };
@@ -27,23 +40,80 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   const [error, setError] = useState<string | null>(null);
   const [theme, setThemeState] = useState<Theme>("light");
   const [density, setDensityState] = useState<Density>("comfortable");
+  const [syncing, setSyncing] = useState(false);
+  const syncingRef = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
+    let unlisten: (() => void) | undefined;
+    let timer: number | undefined;
     (async () => {
       try {
+        let isMain = true;
+        try {
+          isMain = getCurrentWindow().label === "main";
+        } catch {
+          isMain = true;
+        }
+        if (isMain) {
+          await startupPull();
+        }
         await initDb();
+        if (isMain) {
+          await acquireSyncLock(false);
+          const status = await heartbeatSyncLock();
+          if (status.folder && !status.remoteHasDb && status.holdsLock) {
+            await pushLibrary();
+          }
+        }
         const ui = await loadUiSettings();
         if (cancelled) return;
         setThemeState(ui.theme);
         setDensityState(ui.density);
         setReady(true);
+
+        if (!isMain || cancelled) return;
+
+        timer = window.setInterval(() => {
+          void (async () => {
+            try {
+              const next = await heartbeatSyncLock();
+              if (next.folder && next.holdsLock) await pushLibrary();
+            } catch {
+              // Sync is best-effort while the app is open.
+            }
+          })();
+        }, 60_000);
+
+        try {
+          const win = getCurrentWindow();
+          if (win.label === "main") {
+            unlisten = await win.onCloseRequested(async (event) => {
+              event.preventDefault();
+              try {
+                await pushLibrary();
+                await releaseSyncLock();
+              } catch {
+                // Still close so the app cannot get stuck.
+              }
+              await win.destroy();
+            });
+            if (cancelled) {
+              unlisten();
+              unlisten = undefined;
+            }
+          }
+        } catch {
+          // Browser preview or missing window permission.
+        }
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : String(e));
       }
     })();
     return () => {
       cancelled = true;
+      if (timer) window.clearInterval(timer);
+      unlisten?.();
     };
   }, []);
 
@@ -51,6 +121,18 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     document.documentElement.dataset.theme = theme;
     document.documentElement.dataset.density = density;
   }, [theme, density]);
+
+  const syncNow = useCallback(async () => {
+    if (syncingRef.current) return runSyncNow();
+    syncingRef.current = true;
+    setSyncing(true);
+    try {
+      return await runSyncNow();
+    } finally {
+      syncingRef.current = false;
+      setSyncing(false);
+    }
+  }, []);
 
   const setTheme = useCallback((next: Theme) => {
     setThemeState(next);
@@ -63,8 +145,8 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const value = useMemo(
-    () => ({ ready, error, theme, density, setTheme, setDensity }),
-    [ready, error, theme, density, setTheme, setDensity],
+    () => ({ ready, error, theme, density, syncing, syncNow, setTheme, setDensity }),
+    [ready, error, theme, density, syncing, syncNow, setTheme, setDensity],
   );
 
   if (error) {

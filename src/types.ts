@@ -45,6 +45,8 @@ export type NoteBox = {
   width: number;
   height: number;
   body: string;
+  createdAt?: string;
+  updatedAt?: string;
 };
 
 export type ChecklistItem = {

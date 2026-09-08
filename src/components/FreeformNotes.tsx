@@ -2,7 +2,7 @@ import { useRef, useState } from "react";
 import { GripVertical } from "lucide-react";
 import type { NoteBox } from "../types";
 import { EMPTY_DOC } from "../types";
-import { docToText, isEmptyDoc } from "../lib/format";
+import { docToText, formatDate, isEmptyDoc } from "../lib/format";
 import { uid } from "../lib/worksheet";
 import { RichEditor } from "./RichEditor";
 
@@ -63,10 +63,13 @@ export function FreeformNotes({
     };
   };
 
+  const stampNow = () => new Date().toISOString();
+
   const onPageDoubleClick = (e: React.MouseEvent<HTMLDivElement>) => {
     if (e.button !== 0) return;
     if (e.target !== pageRef.current) return;
     const { x, y } = pagePoint(e);
+    const now = stampNow();
     const box: NoteBox = {
       id: uid(),
       x,
@@ -74,6 +77,8 @@ export function FreeformNotes({
       width: DEFAULT_WIDTH,
       height: DEFAULT_HEIGHT,
       body: EMPTY_DOC,
+      createdAt: now,
+      updatedAt: now,
     };
     emit([...boxesRef.current, box]);
     setFocusedId(box.id);
@@ -167,6 +172,9 @@ export function FreeformNotes({
                 onPointerCancel={endDrag}
               >
                 <GripVertical size={14} />
+                {box.createdAt || box.updatedAt ? (
+                  <span className="note-box-date">{formatDate(box.createdAt || box.updatedAt)}</span>
+                ) : null}
               </button>
               <button
                 type="button"
@@ -184,7 +192,14 @@ export function FreeformNotes({
                   initialJson={box.body}
                   placeholder="Write here…"
                   collapsibleToolbar
-                  onChange={(body) => patchBox(box.id, { body })}
+                  onChange={(body) => {
+                    const now = stampNow();
+                    patchBox(box.id, {
+                      body,
+                      updatedAt: now,
+                      createdAt: box.createdAt ?? now,
+                    });
+                  }}
                 />
               ) : (
                 <button

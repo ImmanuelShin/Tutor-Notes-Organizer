@@ -1,6 +1,7 @@
 import { getDb } from "./client";
 import type { Resource, ResourceType } from "../types";
 import { EMPTY_DOC } from "../types";
+import { collectReferencedFiles } from "../lib/libraryFiles";
 import { deleteAppFile } from "../lib/media";
 
 export async function listResources(opts?: {
@@ -112,10 +113,13 @@ export async function deleteResource(id: number): Promise<void> {
   const db = await getDb();
   await db.execute("DELETE FROM resources WHERE id = $1", [id]);
   if (current?.file_path) {
-    try {
-      await deleteAppFile(current.file_path);
-    } catch {
-      // File may already be gone; the row is deleted either way.
+    const refs = await collectReferencedFiles();
+    if (!refs.includes(current.file_path.replace(/\\/g, "/"))) {
+      try {
+        await deleteAppFile(current.file_path);
+      } catch {
+        // File may already be gone; the row is deleted either way.
+      }
     }
   }
 }

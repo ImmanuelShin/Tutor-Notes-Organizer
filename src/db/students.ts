@@ -1,6 +1,7 @@
 import { getDb } from "./client";
 import type { Student } from "../types";
 import { EMPTY_DOC } from "../types";
+import { sweepOrphanedFiles } from "../lib/libraryFiles";
 import { deleteOwnedResources } from "./resources";
 
 export async function listStudents(opts?: {
@@ -116,4 +117,9 @@ export async function deleteStudent(id: number): Promise<void> {
   await deleteOwnedResources(id);
   const db = await getDb();
   await db.execute("DELETE FROM students WHERE id = $1", [id]);
+  try {
+    await sweepOrphanedFiles();
+  } catch {
+    // Rows are gone even if file cleanup fails.
+  }
 }

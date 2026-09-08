@@ -85,6 +85,50 @@ export async function createTopic(input: {
   return Number(result.lastInsertId);
 }
 
+export async function createTopics(
+  titles: string[],
+  subject: string,
+): Promise<{ created: number; skipped: number; subject: string }> {
+  const subjectValue = subject.trim();
+  const seen = new Set<string>();
+  const unique: string[] = [];
+  for (const raw of titles) {
+    const title = raw.trim();
+    if (!title) continue;
+    const key = title.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    unique.push(title);
+  }
+
+  const existing = [
+    ...(await listTopics({ archived: false })),
+    ...(await listTopics({ archived: true })),
+  ];
+  const subjectKey = subjectValue.toLowerCase();
+  const canonicalSubject =
+    existing.find((t) => t.subject.trim().toLowerCase() === subjectKey)?.subject ?? subjectValue;
+  const existingTitles = new Set(
+    existing
+      .filter((t) => t.subject.trim().toLowerCase() === subjectKey)
+      .map((t) => t.title.trim().toLowerCase()),
+  );
+
+  let sort = await nextTopicSort(canonicalSubject);
+  let created = 0;
+  let skipped = 0;
+  for (const title of unique) {
+    if (existingTitles.has(title.toLowerCase())) {
+      skipped += 1;
+      continue;
+    }
+    await createTopic({ title, subject: canonicalSubject, sortOrder: sort });
+    sort += 1;
+    created += 1;
+  }
+  return { created, skipped, subject: canonicalSubject };
+}
+
 export async function updateTopic(
   id: number,
   patch: Partial<Pick<Topic, "title" | "subject" | "description" | "tags" | "archived">>,

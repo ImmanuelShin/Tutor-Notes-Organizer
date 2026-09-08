@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from "react";
 import { createPortal } from "react-dom";
-import { CalendarDays, Plus, Trash2 } from "lucide-react";
+import { CalendarDays, GripVertical, Plus, Trash2 } from "lucide-react";
 import type { Worksheet } from "../types";
 import {
   addWorksheetColumn,
@@ -8,19 +8,21 @@ import {
   cellPreview,
   deleteWorksheetColumn,
   deleteWorksheetRow,
+  ensureTodayEntry,
+  isAssessmentColumn,
   parseCell,
   renameColumn,
   resizeColumn,
   serializeDays,
   setCell,
   sortDayEntries,
+  stampAssessmentDraft,
   toDayLog,
   todayIsoDate,
   uid,
   type DayEntry,
 } from "../lib/worksheet";
 import { cn } from "../lib/format";
-import { Modal } from "./ui";
 
 type CellPos = { r: number; c: number };
 
@@ -49,6 +51,52 @@ function floatingEditorStyle(rect: DOMRect): CSSProperties {
   return { top, left, width, maxHeight };
 }
 
+const DAY_NOTES_WIDTH = 520;
+const DAY_NOTES_EST_HEIGHT = 420;
+const POPUP_PAD = 8;
+const POPUP_GAP = 8;
+
+function clampPopupPos(x: number, y: number, width: number, height: number) {
+  const maxX = Math.max(POPUP_PAD, window.innerWidth - width - POPUP_PAD);
+  const maxY = Math.max(POPUP_PAD, window.innerHeight - height - POPUP_PAD);
+  return {
+    x: Math.min(Math.max(POPUP_PAD, x), maxX),
+    y: Math.min(Math.max(POPUP_PAD, y), maxY),
+  };
+}
+
+function anchorOnScreen(anchor: DOMRect) {
+  return (
+    anchor.bottom > POPUP_PAD &&
+    anchor.top < window.innerHeight - POPUP_PAD &&
+    anchor.right > POPUP_PAD &&
+    anchor.left < window.innerWidth - POPUP_PAD
+  );
+}
+
+function placeDayNotes(anchor: DOMRect | null, width: number, height: number) {
+  const centered = clampPopupPos(
+    (window.innerWidth - width) / 2,
+    (window.innerHeight - height) / 2,
+    width,
+    height,
+  );
+  if (!anchor || !anchorOnScreen(anchor)) return centered;
+
+  const x = anchor.left + anchor.width / 2 - width / 2;
+  const spaceAbove = anchor.top - POPUP_PAD;
+  const spaceBelow = window.innerHeight - anchor.bottom - POPUP_PAD;
+  let y: number;
+  if (spaceAbove >= height + POPUP_GAP) {
+    y = anchor.top - height - POPUP_GAP;
+  } else if (spaceBelow >= Math.min(height, 240) + POPUP_GAP) {
+    y = anchor.bottom + POPUP_GAP;
+  } else {
+    return centered;
+  }
+  return clampPopupPos(x, y, width, height);
+}
+
 export function DataGrid({
   value,
   onChange,
@@ -64,6 +112,7 @@ export function DataGrid({
   const [dragWidth, setDragWidth] = useState<{ id: string; width: number } | null>(null);
   const [menu, setMenu] = useState<{ x: number; y: number; r: number; c: number } | null>(null);
   const [daysPos, setDaysPos] = useState<CellPos | null>(null);
+  const [daysAnchor, setDaysAnchor] = useState<DOMRect | null>(null);
   const [editorBox, setEditorBox] = useState<CSSProperties | null>(null);
   const editorRef = useRef<HTMLTextAreaElement>(null);
   const editAnchorRef = useRef<HTMLTableCellElement | null>(null);
@@ -161,18 +210,30 @@ export function DataGrid({
       futureRef.current = [];
     }
     setDaysPos(null);
+    setDaysAnchor(null);
   };
 
-  const openDays = (pos: CellPos) => {
+  const openDays = (pos: CellPos, seed?: string) => {
     if (!daysSnapshotRef.current) {
       daysSnapshotRef.current = cloneWorksheet(valueRef.current);
     }
     suppressHistoryRef.current = true;
+    const col = value.columns[pos.c];
+    const assessment = isAssessmentColumn(col);
     const raw = cellRaw(pos);
-    if (parseCell(raw).kind !== "days") writeCell(pos, toDayLog(raw));
+    const parsed = parseCell(raw);
+    if (parsed.kind !== "days") {
+      if (seed) writeCell(pos, toDayLog(seed));
+      else if (!assessment) writeCell(pos, toDayLog(raw));
+    } else if (assessment && seed) {
+      const next = ensureTodayEntry(raw, seed);
+      if (next !== serializeDays(parsed.entries)) writeCell(pos, next);
+    }
     setEditPos(null);
     setMenu(null);
     setSelected(pos);
+    const cell = sheetRef.current?.querySelector(`[data-cell="${pos.r}:${pos.c}"]`);
+    setDaysAnchor(cell instanceof HTMLElement ? cell.getBoundingClientRect() : null);
     setDaysPos(pos);
   };
 
@@ -190,7 +251,8 @@ export function DataGrid({
       setEditPos(null);
       return;
     }
-    writeCell(editPos, draft);
+    const col = value.columns[editPos.c];
+    writeCell(editPos, isAssessmentColumn(col) ? stampAssessmentDraft(cellRaw(editPos), draft) : draft);
     setEditPos(null);
     sheetRef.current?.focus();
   };
@@ -203,12 +265,12 @@ export function DataGrid({
 
   const startEdit = (pos: CellPos, seed?: string) => {
     const raw = cellRaw(pos);
-    if (parseCell(raw).kind === "days") {
-      openDays(pos);
+    const col = value.columns[pos.c];
+    if (parseCell(raw).kind === "days" || isAssessmentColumn(col)) {
+      openDays(pos, seed);
       return;
     }
     const row = value.rows[pos.r];
-    const col = value.columns[pos.c];
     if (!row || !col) return;
     setSelected(pos);
     setDraft(seed !== undefined ? seed : raw);
@@ -251,8 +313,6 @@ export function DataGrid({
       return;
     }
     if (!selected) return;
-    const raw = cellRaw(selected);
-    const isDays = parseCell(raw).kind === "days";
     if (e.key === "ArrowUp") {
       e.preventDefault();
       move(-1, 0);
@@ -267,8 +327,7 @@ export function DataGrid({
       move(0, 1);
     } else if (e.key === "Enter") {
       e.preventDefault();
-      if (isDays) openDays(selected);
-      else startEdit(selected);
+      startEdit(selected);
     } else if (e.key === "Tab") {
       e.preventDefault();
       move(0, e.shiftKey ? -1 : 1);
@@ -277,8 +336,7 @@ export function DataGrid({
       writeCell(selected, "");
     } else if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
       e.preventDefault();
-      if (isDays) openDays(selected);
-      else startEdit(selected, e.key);
+      startEdit(selected, e.key);
     }
   };
 
@@ -441,6 +499,7 @@ export function DataGrid({
                   return (
                     <td
                       key={col.id}
+                      data-cell={`${r}:${c}`}
                       ref={isEd ? editAnchorRef : undefined}
                       className={cn("sheet-cell", isSel && "selected")}
                       style={{ width: colWidth(col), minWidth: colWidth(col) }}
@@ -536,8 +595,12 @@ export function DataGrid({
 
       {daysPos && daysTarget ? (
         <DayNotesModal
+          key={`${daysPos.r}-${daysPos.c}`}
           title={daysTitle}
           entries={daysParsed?.kind === "days" ? daysParsed.entries : []}
+          initialText={daysParsed?.kind === "text" ? daysParsed.text : ""}
+          autoToday={isAssessmentColumn(daysTarget.col)}
+          anchorRect={daysAnchor}
           onChange={(entries) => writeCell(daysPos, entries.length ? serializeDays(entries) : "")}
           onClose={closeDays}
         />
@@ -560,64 +623,192 @@ function DayCellPreview({ raw, count }: { raw: string; count: number }) {
 function DayNotesModal({
   title,
   entries,
+  initialText = "",
+  autoToday = false,
+  anchorRect,
   onChange,
   onClose,
 }: {
   title: string;
   entries: DayEntry[];
+  initialText?: string;
+  autoToday?: boolean;
+  anchorRect: DOMRect | null;
   onChange: (entries: DayEntry[]) => void;
   onClose: () => void;
 }) {
-  const sorted = sortDayEntries(entries);
+  const today = todayIsoDate();
+  const [ghost, setGhost] = useState<DayEntry | null>(() =>
+    autoToday ? { id: uid(), date: today, text: initialText } : null,
+  );
+  const [pos, setPos] = useState(() =>
+    placeDayNotes(anchorRect, DAY_NOTES_WIDTH, DAY_NOTES_EST_HEIGHT),
+  );
+  const panelRef = useRef<HTMLDivElement>(null);
+  const posRef = useRef(pos);
+  posRef.current = pos;
+  const anchorRef = useRef(anchorRect);
+  const dragRef = useRef<{ startX: number; startY: number; origX: number; origY: number } | null>(
+    null,
+  );
+  const hasToday = entries.some((e) => e.date === today);
+  const shownGhost = autoToday && !hasToday ? ghost : null;
+  const displayed = shownGhost ? [...entries, shownGhost] : entries;
+  const sorted = sortDayEntries(displayed);
 
-  const patch = (id: string, next: Partial<DayEntry>) => {
-    onChange(entries.map((e) => (e.id === id ? { ...e, ...next } : e)));
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  useLayoutEffect(() => {
+    const el = panelRef.current;
+    if (!el) return;
+    const { width, height } = el.getBoundingClientRect();
+    setPos(placeDayNotes(anchorRef.current, width, height));
+  }, []);
+
+  const persist = (next: DayEntry[]) => {
+    onChange(next);
   };
 
-  return (
-    <Modal title={title} onClose={onClose} wide>
-      <p className="mb-3 text-sm text-[var(--ink-muted)]">
-        One entry per session. The grid only shows the latest day so the cell stays small.
-      </p>
-      <div className="space-y-3">
-        {sorted.map((entry) => (
-          <div key={entry.id} className="rounded-xl border border-[var(--line)] p-3">
-            <div className="mb-2 flex items-center justify-between gap-2">
-              <input
-                className="field w-auto"
-                type="date"
-                value={entry.date}
-                onChange={(e) => patch(entry.id, { date: e.target.value || todayIsoDate() })}
-              />
-              <button
-                type="button"
-                className="btn btn-quiet btn-small btn-danger ml-auto"
-                title="Delete day"
-                onClick={() => onChange(entries.filter((e) => e.id !== entry.id))}
-              >
-                <Trash2 size={14} />
-              </button>
-            </div>
-            <textarea
-              className="field min-h-24"
-              value={entry.text}
-              placeholder="Notes for this day…"
-              onChange={(e) => patch(entry.id, { text: e.target.value })}
-            />
+  const patch = (id: string, next: Partial<DayEntry>) => {
+    if (shownGhost && id === shownGhost.id) {
+      const updated = { ...shownGhost, ...next };
+      setGhost(updated);
+      if (updated.text.trim() || updated.date !== today) {
+        persist([...entries, updated]);
+      }
+      return;
+    }
+    persist(entries.map((e) => (e.id === id ? { ...e, ...next } : e)));
+  };
+
+  const startDrag = (e: ReactPointerEvent) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    dragRef.current = {
+      startX: e.clientX,
+      startY: e.clientY,
+      origX: posRef.current.x,
+      origY: posRef.current.y,
+    };
+  };
+
+  const onDragMove = (e: ReactPointerEvent) => {
+    const drag = dragRef.current;
+    if (!drag) return;
+    const el = panelRef.current;
+    const width = el?.offsetWidth ?? DAY_NOTES_WIDTH;
+    const height = el?.offsetHeight ?? DAY_NOTES_EST_HEIGHT;
+    setPos(
+      clampPopupPos(
+        drag.origX + e.clientX - drag.startX,
+        drag.origY + e.clientY - drag.startY,
+        width,
+        height,
+      ),
+    );
+  };
+
+  const endDrag = () => {
+    dragRef.current = null;
+  };
+
+  return createPortal(
+    <div className="day-notes-backdrop" onMouseDown={onClose}>
+      <div
+        ref={panelRef}
+        className="day-notes-panel card"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="day-notes-title"
+        style={{ left: pos.x, top: pos.y }}
+        onMouseDown={(e) => e.stopPropagation()}
+      >
+        <header className="day-notes-header">
+          <div
+            className="day-notes-handle"
+            title="Drag"
+            onPointerDown={startDrag}
+            onPointerMove={onDragMove}
+            onPointerUp={endDrag}
+            onPointerCancel={endDrag}
+          >
+            <GripVertical size={14} />
+            <h2 id="day-notes-title" className="m-0 min-w-0 truncate text-lg">
+              {title}
+            </h2>
           </div>
-        ))}
+          <button className="btn btn-quiet btn-small shrink-0" onClick={onClose} type="button">
+            Close
+          </button>
+        </header>
+        <div className="day-notes-body">
+          <p className="mb-3 text-sm text-[var(--ink-muted)]">
+            {autoToday
+              ? "New notes start as today. Older days keep the date they were written. The grid only shows the latest day."
+              : "One entry per session. The grid only shows the latest day so the cell stays small."}
+          </p>
+          <div className="space-y-3">
+            {sorted.map((entry) => (
+              <div key={entry.id} className="rounded-xl border border-[var(--line)] p-3">
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <input
+                    className="field w-auto"
+                    type="date"
+                    value={entry.date}
+                    onChange={(e) => patch(entry.id, { date: e.target.value || todayIsoDate() })}
+                  />
+                  <button
+                    type="button"
+                    className="btn btn-quiet btn-small btn-danger ml-auto"
+                    title="Delete day"
+                    onClick={() => {
+                      if (shownGhost && entry.id === shownGhost.id) {
+                        setGhost(null);
+                        if (entries.length === 0 && initialText.trim()) persist([]);
+                        return;
+                      }
+                      persist(entries.filter((e) => e.id !== entry.id));
+                    }}
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </div>
+                <textarea
+                  className="field min-h-24"
+                  value={entry.text}
+                  placeholder="Notes for this day…"
+                  autoFocus={entry.date === today && sorted.find((e) => e.date === today)?.id === entry.id}
+                  onChange={(e) => patch(entry.id, { text: e.target.value })}
+                />
+              </div>
+            ))}
+          </div>
+          <div className="mt-3">
+            <button
+              type="button"
+              className="btn btn-small"
+              onClick={() => {
+                const base =
+                  shownGhost && (shownGhost.text.trim() || shownGhost.date !== today)
+                    ? [...entries, shownGhost]
+                    : entries;
+                persist([...base, { id: uid(), date: todayIsoDate(), text: "" }]);
+              }}
+            >
+              <Plus size={14} /> Add day
+            </button>
+          </div>
+        </div>
       </div>
-      <div className="mt-3">
-        <button
-          type="button"
-          className="btn btn-small"
-          onClick={() =>
-            onChange([...entries, { id: uid(), date: todayIsoDate(), text: "" }])
-          }
-        >
-          <Plus size={14} /> Add day
-        </button>
-      </div>
-    </Modal>
+    </div>,
+    document.body,
   );
 }

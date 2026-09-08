@@ -61,9 +61,17 @@ function parseTab(raw: unknown): WorkspaceTab | null {
   return { id, title, kind: "table", table };
 }
 
+function parseStamp(raw: unknown): string | undefined {
+  if (typeof raw !== "string" || !raw.trim()) return undefined;
+  const t = new Date(raw).getTime();
+  return Number.isNaN(t) ? undefined : raw;
+}
+
 function parseNoteBox(raw: unknown): NoteBox | null {
   if (!raw || typeof raw !== "object") return null;
   const b = raw as Partial<NoteBox>;
+  const createdAt = parseStamp(b.createdAt);
+  const updatedAt = parseStamp(b.updatedAt) ?? createdAt;
   return {
     id: typeof b.id === "string" && b.id ? b.id : uid(),
     x: Number(b.x) || 0,
@@ -71,6 +79,8 @@ function parseNoteBox(raw: unknown): NoteBox | null {
     width: Math.min(720, Math.max(160, Number(b.width) || 280)),
     height: Math.min(900, Math.max(120, Number(b.height) || 180)),
     body: typeof b.body === "string" && b.body ? b.body : EMPTY_DOC,
+    ...(createdAt ? { createdAt } : {}),
+    ...(updatedAt ? { updatedAt } : {}),
   };
 }
 
@@ -150,8 +160,22 @@ export function deleteExtraWorkspace(ws: Workspace, id: string): Workspace {
   return { ...ws, extras: Object.keys(extras).length ? extras : undefined };
 }
 
+function allWorkspaces(ws: Workspace): Workspace[] {
+  return [ws, ...Object.values(ws.extras ?? {})];
+}
+
 export function workspaceTables(ws: Workspace): Worksheet[] {
-  return ws.tabs.filter((t) => t.kind === "table" && t.table).map((t) => t.table as Worksheet);
+  return allWorkspaces(ws)
+    .flatMap((space) => space.tabs)
+    .filter((t) => t.kind === "table" && t.table)
+    .map((t) => t.table as Worksheet);
+}
+
+export function workspaceNoteBoxes(ws: Workspace): NoteBox[] {
+  return allWorkspaces(ws)
+    .flatMap((space) => space.tabs)
+    .filter((t) => t.kind === "notes")
+    .flatMap((t) => t.notes ?? []);
 }
 
 export function activeTab(ws: Workspace): WorkspaceTab {

@@ -1,6 +1,6 @@
 import { getTopic, listAssessments, listExamples, listGoals, listSubUnits } from "../db/topics";
-import { docToText, textToDoc } from "./format";
-import type { Worksheet, WorksheetColumn, WorksheetRow } from "../types";
+import { docToText, formatDate, textToDoc } from "./format";
+import type { NoteBox, Worksheet, WorksheetColumn, WorksheetRow } from "../types";
 
 export const TEMPLATE_COLUMN_SPECS = [
   { key: "topic", title: "Topic", width: 160 },
@@ -121,6 +121,35 @@ export function toDayLog(existingText: string): string {
   ]);
 }
 
+export function isAssessmentColumn(col: WorksheetColumn | undefined): boolean {
+  if (!col) return false;
+  return col.id === "assessment" || col.title.toLowerCase().trim() === "assessment";
+}
+
+export function stampAssessmentDraft(prev: string, draft: string): string {
+  if (!draft.trim()) return "";
+  const parsed = parseCell(prev);
+  if (parsed.kind === "days") return serializeDays(parsed.entries);
+  if (draft === parsed.text) return prev;
+  return toDayLog(draft);
+}
+
+export function ensureTodayEntry(existing: string, seed = ""): string {
+  const today = todayIsoDate();
+  const parsed = parseCell(existing);
+  const entries: DayEntry[] =
+    parsed.kind === "days" ? [...parsed.entries] : [{ id: uid(), date: today, text: parsed.text }];
+  const idx = entries.findIndex((e) => e.date === today);
+  if (idx < 0) {
+    entries.push({ id: uid(), date: today, text: seed });
+    return serializeDays(entries);
+  }
+  if (seed && !entries[idx].text) {
+    entries[idx] = { ...entries[idx], text: seed };
+  }
+  return serializeDays(entries);
+}
+
 export function cellIsBlank(raw: string | null | undefined): boolean {
   const parsed = parseCell(raw);
   if (parsed.kind === "text") return !parsed.text.trim();
@@ -205,7 +234,7 @@ export function findColumn(
 function isProgressColumn(col: WorksheetColumn | undefined): boolean {
   if (!col) return false;
   const title = col.title.toLowerCase().trim();
-  return col.id === "topic" || col.id === "assessment" || title === "topic" || title === "assessment";
+  return col.id === "topic" || title === "topic" || isAssessmentColumn(col);
 }
 
 export function setCell(ws: Worksheet, rowId: string, colId: string, value: string): Worksheet {
@@ -335,6 +364,7 @@ export function sessionNoteRange(opts: {
   startedAt?: string | null;
   now?: Date;
   ws: Worksheet | Worksheet[];
+  notes?: NoteBox[];
 }): { from: Date; to: Date } {
   const now = opts.now ?? new Date();
   const tables = Array.isArray(opts.ws) ? opts.ws : [opts.ws];
@@ -343,22 +373,38 @@ export function sessionNoteRange(opts: {
     if (!Number.isNaN(from.getTime())) return { from, to: now };
   }
   const recentFrom = new Date(now.getTime() - THREE_HOURS_MS);
-  if (tables.some((ws) => rowsInRange(ws, recentFrom, now).length)) return { from: recentFrom, to: now };
+  if (
+    tables.some((table) => rowsInRange(table, recentFrom, now).length) ||
+    notesInRange(opts.notes ?? [], recentFrom, now).length
+  ) {
+    return { from: recentFrom, to: now };
+  }
   const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   return { from: todayStart, to: now };
 }
 
+function inTimeRange(iso: string | undefined, from: Date, to: Date): boolean {
+  if (!iso) return false;
+  const t = new Date(iso).getTime();
+  return !Number.isNaN(t) && t >= from.getTime() && t <= to.getTime();
+}
+
 function rowsInRange(ws: Worksheet, from: Date, to: Date): WorksheetRow[] {
-  const fromMs = from.getTime();
-  const toMs = to.getTime();
-  return ws.rows.filter((r) => {
-    if (!r.lastEditedAt) return false;
-    const t = new Date(r.lastEditedAt).getTime();
-    return t >= fromMs && t <= toMs;
+  return ws.rows.filter((r) => inTimeRange(r.lastEditedAt, from, to));
+}
+
+function notesInRange(notes: NoteBox[], from: Date, to: Date): NoteBox[] {
+  return notes.filter((box) => {
+    if (!docToText(box.body)) return false;
+    return inTimeRange(box.updatedAt || box.createdAt, from, to);
   });
 }
 
-export function suggestedSessionNotes(ws: Worksheet | Worksheet[], range: { from: Date; to: Date }): string {
+export function suggestedSessionNotes(
+  ws: Worksheet | Worksheet[],
+  range: { from: Date; to: Date },
+  notes: NoteBox[] = [],
+): string {
   const tables = Array.isArray(ws) ? ws : [ws];
   const byTopic = new Map<string, string[]>();
   const order: string[] = [];
@@ -378,6 +424,15 @@ export function suggestedSessionNotes(ws: Worksheet | Worksheet[], range: { from
     if (assessment) byTopic.get(topic)!.push(assessment);
   }
   const blocks = order.map((topic) => [topic, ...(byTopic.get(topic) ?? [])].join("\n"));
+  const noteBlocks = notesInRange(notes, range.from, range.to)
+    .sort((a, b) => (a.updatedAt ?? a.createdAt ?? "").localeCompare(b.updatedAt ?? b.createdAt ?? ""))
+    .map((box) => {
+      const text = docToText(box.body);
+      const stamp = box.createdAt || box.updatedAt;
+      const date = stamp ? formatDate(stamp) : "";
+      return date ? `${date}\n${text}` : text;
+    });
+  if (noteBlocks.length) blocks.push(["Notes", ...noteBlocks].join("\n\n"));
   if (!blocks.length) return textToDoc("");
   return textToDoc(blocks.join("\n\n"));
 }

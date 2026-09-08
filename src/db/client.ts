@@ -3,29 +3,81 @@ import { SCHEMA_STATEMENTS } from "./schema";
 
 let db: Database | null = null;
 let initPromise: Promise<Database> | null = null;
+let generation = 0;
+
+async function openAndMigrate(): Promise<Database> {
+  const instance = await Database.load("sqlite:tutor.db");
+  await instance.execute("PRAGMA foreign_keys = ON");
+  try {
+    await instance.execute("PRAGMA journal_mode = WAL");
+  } catch {
+    // WAL is optional; some environments reject PRAGMA via execute
+  }
+  for (const statement of SCHEMA_STATEMENTS) {
+    await instance.execute(statement);
+  }
+  await migrateStudentsColumns(instance);
+  await migrateResourcesColumns(instance);
+  await migrateTemplatesTable(instance);
+  return instance;
+}
 
 export async function getDb(): Promise<Database> {
   if (db) return db;
   if (!initPromise) {
+    const gen = generation;
     initPromise = (async () => {
-      const instance = await Database.load("sqlite:tutor.db");
-      await instance.execute("PRAGMA foreign_keys = ON");
-      try {
-        await instance.execute("PRAGMA journal_mode = WAL");
-      } catch {
-        // WAL is optional; some environments reject PRAGMA via execute
+      const instance = await openAndMigrate();
+      if (generation !== gen) {
+        try {
+          await instance.close();
+        } catch {
+          // Replaced while opening.
+        }
+        throw new Error("database connection was replaced");
       }
-      for (const statement of SCHEMA_STATEMENTS) {
-        await instance.execute(statement);
-      }
-      await migrateStudentsColumns(instance);
-      await migrateResourcesColumns(instance);
-      await migrateTemplatesTable(instance);
       db = instance;
       return instance;
     })();
   }
   return initPromise;
+}
+
+export async function closeDb(): Promise<void> {
+  generation += 1;
+  const pending = initPromise;
+  const instance = db;
+  db = null;
+  initPromise = null;
+  if (instance) {
+    try {
+      await instance.close();
+    } catch {
+      // Plugin may already have dropped the connection.
+    }
+    return;
+  }
+  if (pending) {
+    try {
+      const opened = await pending;
+      await opened.close();
+    } catch {
+      // Plugin may already have dropped the connection.
+    }
+  }
+}
+
+export async function checkpointDb(): Promise<void> {
+  const instance = await getDb();
+  try {
+    await instance.select("PRAGMA wal_checkpoint(TRUNCATE)");
+  } catch {
+    try {
+      await instance.execute("PRAGMA wal_checkpoint(TRUNCATE)");
+    } catch {
+      // Checkpoint is best-effort before a sync copy.
+    }
+  }
 }
 
 async function migrateStudentsColumns(instance: Database): Promise<void> {

@@ -114,6 +114,10 @@ h3,
 .btn:hover {
   background: var(--bg-hover);
 }
+.btn:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
 .btn-primary {
   background: var(--accent);
   border-color: transparent;
@@ -224,11 +228,17 @@ h3,
   flex: 1;
   cursor: grab;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
+  gap: 0.3rem;
   border: 0;
   background: transparent;
   color: var(--ink-muted);
-  padding: 0.15rem;
+  padding: 0.15rem 0.45rem;
+}
+.note-box-date {
+  font-size: 0.7rem;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
 }
 .note-box-handle:active {
   cursor: grabbing;
@@ -515,6 +525,59 @@ h3,
 }
 .sheet-resize:hover {
   background: color-mix(in srgb, var(--accent) 45%, transparent);
+}
+
+.day-notes-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: color-mix(in srgb, #000 22%, transparent);
+}
+.day-notes-panel {
+  position: absolute;
+  display: flex;
+  width: min(36rem, calc(100vw - 16px));
+  max-height: min(36rem, calc(100vh - 16px));
+  flex-direction: column;
+  overflow: hidden;
+  box-shadow: 0 24px 64px color-mix(in srgb, #000 28%, transparent);
+}
+.day-notes-header {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 0.5rem;
+  border-bottom: 1px solid var(--line);
+  background: color-mix(in srgb, var(--bg-sidebar) 70%, var(--bg-raised));
+  padding: 0.45rem 0.55rem 0.45rem 0.2rem;
+}
+.day-notes-handle {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  align-items: center;
+  gap: 0.35rem;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  padding: 0.2rem 0.45rem;
+  text-align: left;
+}
+.day-notes-handle svg {
+  flex-shrink: 0;
+  color: var(--ink-muted);
+}
+.day-notes-handle:active {
+  cursor: grabbing;
+}
+.day-notes-body {
+  min-height: 0;
+  flex: 1;
+  overflow: auto;
+  padding: 1rem 1.15rem 1.15rem;
 }
 
 .topic-drag-handle {

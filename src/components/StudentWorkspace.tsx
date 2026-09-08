@@ -158,8 +158,10 @@ export function StudentWorkspace({
         <div className="flex min-h-0 flex-1 flex-col">
           <p className="mb-3 shrink-0 text-sm text-[var(--ink-muted)]">
             Import a subject group — each topic becomes one row. Paste a Google Sheets table to fill
-            Assessment notes on matching topics. Right-click a cell to split notes by day so the
-            grid stays compact. Double-click a header to rename it. Double-click a tab to rename it.
+            Assessment notes on matching topics. Assessment notes are dated when you write them; a
+            new day starts automatically the next time you add notes. Right-click other cells to
+            split notes by day so the grid stays compact. Double-click a header to rename it.
+            Double-click a tab to rename it.
           </p>
           <DataGrid
             key={`${tab.id}-${gridEpoch}`}

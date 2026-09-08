@@ -1,55 +1,12 @@
-use std::fs;
-use std::path::{Path, PathBuf};
+mod files;
+mod optimize;
+mod paths;
+mod sync;
 
-use base64::Engine;
-use tauri::{AppHandle, Manager};
+use tauri::AppHandle;
 use tauri_plugin_opener::OpenerExt;
 
-fn app_root(app: &AppHandle) -> Result<PathBuf, String> {
-    let dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
-    fs::create_dir_all(dir.join("media")).map_err(|e| e.to_string())?;
-    fs::create_dir_all(dir.join("pdfs")).map_err(|e| e.to_string())?;
-    Ok(dir)
-}
-
-fn safe_join(root: &Path, relative: &str) -> Result<PathBuf, String> {
-    let rel = Path::new(relative);
-    if rel.is_absolute() || relative.split(['/', '\\']).any(|p| p == "..") {
-        return Err("invalid path".into());
-    }
-    Ok(root.join(rel))
-}
-
-fn unique_dest(dir: &Path, original: &str) -> PathBuf {
-    let file_name = Path::new(original)
-        .file_name()
-        .and_then(|s| s.to_str())
-        .unwrap_or("file");
-    let candidate = dir.join(file_name);
-    if !candidate.exists() {
-        return candidate;
-    }
-    let stem = Path::new(file_name)
-        .file_stem()
-        .and_then(|s| s.to_str())
-        .unwrap_or("file");
-    let ext = Path::new(file_name)
-        .extension()
-        .and_then(|s| s.to_str())
-        .unwrap_or("");
-    for i in 1..10_000 {
-        let name = if ext.is_empty() {
-            format!("{stem}-{i}")
-        } else {
-            format!("{stem}-{i}.{ext}")
-        };
-        let path = dir.join(name);
-        if !path.exists() {
-            return path;
-        }
-    }
-    dir.join(format!("{stem}-{}", uuid::Uuid::new_v4()))
-}
+use crate::paths::{app_root, safe_join};
 
 #[tauri::command]
 fn get_app_data_dir(app: AppHandle) -> Result<String, String> {
@@ -58,80 +15,32 @@ fn get_app_data_dir(app: AppHandle) -> Result<String, String> {
 
 #[tauri::command]
 fn save_pasted_image(app: AppHandle, data_base64: String, mime: String) -> Result<String, String> {
-    let payload = data_base64
-        .split_once(',')
-        .map(|(_, rest)| rest)
-        .unwrap_or(&data_base64);
-    let bytes = base64::engine::general_purpose::STANDARD
-        .decode(payload)
-        .map_err(|e| e.to_string())?;
-
-    let ext = match mime.as_str() {
-        "image/jpeg" | "image/jpg" => "jpg",
-        "image/gif" => "gif",
-        "image/webp" => "webp",
-        _ => "png",
-    };
-
-    let root = app_root(&app)?;
-    let media = root.join("media");
-    let name = format!("{}.{}", uuid::Uuid::new_v4(), ext);
-    let dest = media.join(&name);
-    fs::write(&dest, bytes).map_err(|e| e.to_string())?;
-    Ok(format!("media/{name}"))
-}
-
-fn import_named_file(
-    app: AppHandle,
-    source: String,
-    folder: &str,
-    fallback: &str,
-) -> Result<String, String> {
-    let root = app_root(&app)?;
-    let dir = root.join(folder);
-    fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    let src = PathBuf::from(&source);
-    if !src.exists() {
-        return Err("file not found".into());
-    }
-    let original = src
-        .file_name()
-        .and_then(|s| s.to_str())
-        .unwrap_or(fallback);
-    let dest = unique_dest(&dir, original);
-    fs::copy(&src, &dest).map_err(|e| e.to_string())?;
-    let file_name = dest
-        .file_name()
-        .and_then(|s| s.to_str())
-        .ok_or_else(|| "invalid file name".to_string())?;
-    Ok(format!("{folder}/{file_name}"))
+    files::save_pasted_image(app, data_base64, mime)
 }
 
 #[tauri::command]
 fn import_pdf(app: AppHandle, source: String) -> Result<String, String> {
-    import_named_file(app, source, "pdfs", "notes.pdf")
+    files::import_pdf(app, source)
 }
 
 #[tauri::command]
 fn import_image(app: AppHandle, source: String) -> Result<String, String> {
-    let lower = source.to_lowercase();
-    if ![".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".tif", ".tiff"]
-        .iter()
-        .any(|ext| lower.ends_with(ext))
-    {
-        return Err("not an image file".into());
-    }
-    import_named_file(app, source, "media", "image.png")
+    files::import_image(app, source)
 }
 
 #[tauri::command]
 fn delete_app_file(app: AppHandle, relative: String) -> Result<(), String> {
-    let root = app_root(&app)?;
-    let path = safe_join(&root, &relative)?;
-    if path.exists() {
-        fs::remove_file(&path).map_err(|e| e.to_string())?;
-    }
-    Ok(())
+    files::delete_app_file(app, relative)
+}
+
+#[tauri::command]
+fn optimize_library(app: AppHandle) -> Result<Vec<files::PathRewrite>, String> {
+    files::optimize_library(app)
+}
+
+#[tauri::command]
+fn sweep_orphaned_files(app: AppHandle, keep: Vec<String>) -> Result<u32, String> {
+    files::sweep_orphaned_files(app, keep)
 }
 
 #[tauri::command]
@@ -167,7 +76,47 @@ fn open_url(app: AppHandle, url: String) -> Result<(), String> {
 
 #[tauri::command]
 fn read_file_bytes(path: String) -> Result<Vec<u8>, String> {
-    fs::read(&path).map_err(|e| e.to_string())
+    std::fs::read(&path).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn sync_status(app: AppHandle) -> Result<sync::SyncStatus, String> {
+    sync::get_status(app)
+}
+
+#[tauri::command]
+fn sync_set_folder(app: AppHandle, folder: String) -> Result<sync::SyncStatus, String> {
+    sync::set_folder(app, folder)
+}
+
+#[tauri::command]
+fn sync_acquire_lock(app: AppHandle, steal: bool) -> Result<sync::SyncStatus, String> {
+    sync::acquire_lock(app, steal)
+}
+
+#[tauri::command]
+fn sync_heartbeat(app: AppHandle) -> Result<sync::SyncStatus, String> {
+    sync::heartbeat_lock(app)
+}
+
+#[tauri::command]
+fn sync_release_lock(app: AppHandle) -> Result<(), String> {
+    sync::release_lock(app)
+}
+
+#[tauri::command]
+fn sync_push(app: AppHandle) -> Result<sync::SyncStatus, String> {
+    sync::push(app)
+}
+
+#[tauri::command]
+fn sync_pull(app: AppHandle, force: bool) -> Result<sync::SyncStatus, String> {
+    sync::pull(app, force)
+}
+
+#[tauri::command]
+fn sync_startup_pull(app: AppHandle) -> Result<sync::SyncStatus, String> {
+    sync::startup_pull(app)
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -186,10 +135,20 @@ pub fn run() {
             import_pdf,
             import_image,
             delete_app_file,
+            optimize_library,
+            sweep_orphaned_files,
             resolve_app_file,
             open_app_file,
             open_url,
-            read_file_bytes
+            read_file_bytes,
+            sync_status,
+            sync_set_folder,
+            sync_acquire_lock,
+            sync_heartbeat,
+            sync_release_lock,
+            sync_push,
+            sync_pull,
+            sync_startup_pull,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

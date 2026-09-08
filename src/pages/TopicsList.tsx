@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { ClipboardPaste, ChevronDown, ChevronRight, GripVertical, Plus, Trash2 } from "lucide-react";
-import { createTopic, deleteTopics, listSubjects, listTopics, reorderTopics } from "../db/topics";
+import { ClipboardPaste, ChevronDown, ChevronRight, FolderPlus, GripVertical, Plus, Trash2 } from "lucide-react";
+import { createTopic, createTopics, deleteTopics, listSubjects, listTopics, reorderTopics } from "../db/topics";
 import type { Topic } from "../types";
 import { parseTags } from "../lib/format";
 import { groupTopicsBySubject, subjectGroupLabel } from "../lib/importTables";
@@ -20,8 +20,15 @@ export function TopicsList() {
   const [creating, setCreating] = useState(params.get("new") === "1");
   const [pasting, setPasting] = useState(params.get("paste") === "1");
   const [pasteSubject, setPasteSubject] = useState<string | undefined>(undefined);
+  const [bulk, setBulk] = useState<"new-group" | "add" | null>(
+    params.get("group") === "1" ? "new-group" : null,
+  );
   const [title, setTitle] = useState("");
   const [subject, setSubject] = useState("");
+  const [bulkSubject, setBulkSubject] = useState("");
+  const [bulkTitles, setBulkTitles] = useState("");
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [bulkResult, setBulkResult] = useState<{ created: number; skipped: number } | null>(null);
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [selectMode, setSelectMode] = useState(false);
   const [menu, setMenu] = useState<{ x: number; y: number; topic: Topic } | null>(null);
@@ -62,6 +69,12 @@ export function TopicsList() {
   useEffect(() => {
     if (params.get("new") === "1") setCreating(true);
     if (params.get("paste") === "1") setPasting(true);
+    if (params.get("group") === "1") {
+      setBulk("new-group");
+      setBulkSubject("");
+      setBulkTitles("");
+      setBulkResult(null);
+    }
   }, [params]);
 
   const openPaste = (groupSubject?: string) => {
@@ -85,6 +98,51 @@ export function TopicsList() {
     if (params.get("new")) {
       params.delete("new");
       setParams(params, { replace: true });
+    }
+  };
+
+  const openNewGroup = () => {
+    setBulk("new-group");
+    setBulkSubject("");
+    setBulkTitles("");
+    setBulkResult(null);
+  };
+
+  const openAddTopics = (groupSubject: string) => {
+    setBulk("add");
+    setBulkSubject(groupSubject);
+    setBulkTitles("");
+    setBulkResult(null);
+  };
+
+  const closeBulk = () => {
+    setBulk(null);
+    setBulkSubject("");
+    setBulkTitles("");
+    setBulkResult(null);
+    setBulkBusy(false);
+    if (params.get("group")) {
+      params.delete("group");
+      setParams(params, { replace: true });
+    }
+  };
+
+  const parsedBulkTitles = parseTitleList(bulkTitles);
+  const isNewGroup = bulk === "new-group";
+  const canSubmitBulk =
+    parsedBulkTitles.length > 0 && (!isNewGroup || Boolean(bulkSubject.trim()));
+
+  const submitBulk = async () => {
+    if (!canSubmitBulk || bulkBusy) return;
+    const subjectValue = isNewGroup ? bulkSubject.trim() : bulkSubject;
+    setBulkBusy(true);
+    try {
+      const result = await createTopics(parsedBulkTitles, subjectValue);
+      setBulkResult(result);
+      setExpanded((prev) => new Set(prev).add(subjectGroupLabel(result.subject)));
+      await reload();
+    } finally {
+      setBulkBusy(false);
     }
   };
 
@@ -158,7 +216,7 @@ export function TopicsList() {
         setMenu(null);
         return;
       }
-      if (pendingDelete || creating || pasting) return;
+      if (pendingDelete || creating || pasting || bulk !== null) return;
       if (selectMode) {
         e.preventDefault();
         exitSelect();
@@ -166,7 +224,7 @@ export function TopicsList() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [menu, selectMode, pendingDelete, creating, pasting]);
+  }, [menu, selectMode, pendingDelete, creating, pasting, bulk]);
 
   useEffect(() => {
     if (!menu) return;
@@ -310,6 +368,9 @@ export function TopicsList() {
             <button type="button" className="btn" onClick={() => openPaste()}>
               <ClipboardPaste size={16} /> Paste table
             </button>
+            <button type="button" className="btn" onClick={openNewGroup}>
+              <FolderPlus size={16} /> New group
+            </button>
             <button type="button" className="btn btn-primary" onClick={() => setCreating(true)}>
               <Plus size={16} /> New topic
             </button>
@@ -385,6 +446,9 @@ export function TopicsList() {
                 <button type="button" className="btn" onClick={() => openPaste()}>
                   Paste table
                 </button>
+                <button type="button" className="btn" onClick={openNewGroup}>
+                  New group
+                </button>
                 <button type="button" className="btn btn-primary" onClick={() => setCreating(true)}>
                   Create a template
                 </button>
@@ -421,15 +485,26 @@ export function TopicsList() {
                     </span>
                   </button>
                   {!selectMode && !archived ? (
-                    <button
-                      type="button"
-                      className="btn btn-quiet btn-small"
-                      onClick={() =>
-                        openPaste(group.label === "Unsorted" ? "" : group.label)
-                      }
-                    >
-                      <ClipboardPaste size={14} /> Paste table
-                    </button>
+                    <>
+                      <button
+                        type="button"
+                        className="btn btn-quiet btn-small"
+                        onClick={() =>
+                          openPaste(group.label === "Unsorted" ? "" : group.label)
+                        }
+                      >
+                        <ClipboardPaste size={14} /> Paste table
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-quiet btn-small"
+                        onClick={() =>
+                          openAddTopics(group.label === "Unsorted" ? "" : group.label)
+                        }
+                      >
+                        <Plus size={14} /> Add topics
+                      </button>
+                    </>
                   ) : null}
                   {selectMode ? (
                     <button
@@ -623,6 +698,57 @@ export function TopicsList() {
         </Modal>
       ) : null}
 
+      {bulk ? (
+        <Modal title={isNewGroup ? "New group" : "Add topics"} onClose={closeBulk}>
+          <div className="space-y-3">
+            {isNewGroup ? (
+              <label className="block text-sm">
+                Group name
+                <SubjectCombobox
+                  value={bulkSubject}
+                  onChange={setBulkSubject}
+                  subjects={subjects}
+                  placeholder="e.g. Algebra 1"
+                />
+              </label>
+            ) : (
+              <p className="text-sm text-[var(--ink-muted)]">
+                Adding to {subjectGroupLabel(bulkSubject)}.
+              </p>
+            )}
+            <label className="block text-sm">
+              Topic titles
+              <textarea
+                className="field mt-1 min-h-40"
+                autoFocus={!isNewGroup}
+                placeholder="One topic title per line"
+                value={bulkTitles}
+                onChange={(e) => {
+                  setBulkTitles(e.target.value);
+                  setBulkResult(null);
+                }}
+              />
+            </label>
+            {bulkResult ? (
+              <p className="text-sm text-[var(--ink-muted)]">{formatBulkResult(bulkResult)}</p>
+            ) : null}
+            <div className="flex justify-end gap-2 pt-2">
+              <button type="button" className="btn" onClick={closeBulk}>
+                {bulkResult ? "Close" : "Cancel"}
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary"
+                disabled={!canSubmitBulk || bulkBusy}
+                onClick={() => void submitBulk()}
+              >
+                {bulkBusy ? "Adding…" : isNewGroup ? "Create group" : "Add topics"}
+              </button>
+            </div>
+          </div>
+        </Modal>
+      ) : null}
+
       {pendingDelete ? (
         <Modal title="Delete topics" onClose={() => setPendingDelete(null)}>
           <p className="text-sm text-[var(--ink-muted)]">
@@ -704,4 +830,24 @@ function applyGroupOrder(all: Topic[], groupLabel: string, orderedIds: number[])
   }
   const reordered = orderedIds.map((id) => byId.get(id)).filter((t): t is Topic => Boolean(t));
   return [...all.slice(0, start), ...reordered, ...all.slice(start + count)];
+}
+
+function parseTitleList(text: string): string[] {
+  const seen = new Set<string>();
+  const titles: string[] = [];
+  for (const line of text.split(/\r?\n/)) {
+    const title = line.trim();
+    if (!title) continue;
+    const key = title.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    titles.push(title);
+  }
+  return titles;
+}
+
+function formatBulkResult(result: { created: number; skipped: number }): string {
+  const created = `Created ${result.created}`;
+  if (!result.skipped) return `${created}.`;
+  return `${created}, skipped ${result.skipped} existing.`;
 }

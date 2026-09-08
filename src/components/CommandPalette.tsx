@@ -15,9 +15,11 @@ type Action = {
 export function CommandPalette({
   open,
   onClose,
+  studentsPath = "/students",
 }: {
   open: boolean;
   onClose: () => void;
+  studentsPath?: string;
 }) {
   const nav = useNavigate();
   const [query, setQuery] = useState("");
@@ -30,7 +32,7 @@ export function CommandPalette({
         id: "students",
         title: "Go to students",
         hint: "Ctrl+1",
-        run: () => nav("/students"),
+        run: () => nav(studentsPath),
       },
       {
         id: "topics",
@@ -63,6 +65,12 @@ export function CommandPalette({
         run: () => nav("/topics?paste=1"),
       },
       {
+        id: "new-topic-group",
+        title: "New topic group",
+        hint: "",
+        run: () => nav("/topics?group=1"),
+      },
+      {
         id: "new-topic",
         title: "New topic template",
         hint: "",
@@ -75,7 +83,7 @@ export function CommandPalette({
         run: () => nav("/templates?new=1"),
       },
     ],
-    [nav],
+    [nav, studentsPath],
   );
 
   const filteredActions = actions.filter((a) =>

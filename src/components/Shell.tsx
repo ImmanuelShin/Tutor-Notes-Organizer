@@ -5,6 +5,7 @@ import {
   ClipboardList,
   FileStack,
   Moon,
+  RefreshCw,
   Search,
   Settings,
   Sun,
@@ -23,6 +24,18 @@ const NAV = [
   { to: "/resources", label: "Resources", icon: FileStack },
 ];
 
+function isStudentsPath(pathname: string): boolean {
+  return pathname === "/students" || /^\/students\/\d+$/.test(pathname);
+}
+
+function navTarget(itemTo: string, studentsReturnTo: string): string {
+  return itemTo === "/students" ? studentsReturnTo : itemTo;
+}
+
+function sectionActive(pathname: string, section: string): boolean {
+  return pathname === section || pathname.startsWith(`${section}/`);
+}
+
 function defaultTitle(pathname: string): string | null {
   if (/^\/students\/\d+/.test(pathname)) return null;
   if (/^\/topics\/\d+/.test(pathname)) return null;
@@ -38,14 +51,19 @@ function defaultTitle(pathname: string): string | null {
 export function Shell() {
   const nav = useNavigate();
   const location = useLocation();
-  const { theme, setTheme } = useSettings();
+  const { theme, setTheme, syncing, syncNow } = useSettings();
   const [palette, setPalette] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [studentsReturnTo, setStudentsReturnTo] = useState("/students");
   const focused = isFocusedChrome();
 
   useEffect(() => {
     const title = defaultTitle(location.pathname);
     if (title) void setAppWindowTitle(title);
+  }, [location.pathname]);
+
+  useEffect(() => {
+    if (isStudentsPath(location.pathname)) setStudentsReturnTo(location.pathname);
   }, [location.pathname]);
 
   useEffect(() => {
@@ -59,7 +77,7 @@ export function Shell() {
       if (!mod) return;
       if (e.key === "1") {
         e.preventDefault();
-        nav("/students");
+        nav(studentsReturnTo);
       } else if (e.key === "2") {
         e.preventDefault();
         nav("/topics");
@@ -73,7 +91,7 @@ export function Shell() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [nav]);
+  }, [nav, studentsReturnTo]);
 
   return (
     <div className="flex h-full">
@@ -96,11 +114,13 @@ export function Shell() {
             {NAV.map((item) => (
               <NavLink
                 key={item.to}
-                to={item.to}
-                className={({ isActive }) =>
+                to={navTarget(item.to, studentsReturnTo)}
+                className={() =>
                   cn(
                     "flex items-center gap-2 rounded-xl px-3 py-2 text-sm",
-                    isActive ? "bg-[var(--bg-raised)] shadow-sm" : "hover:bg-[var(--bg-hover)]",
+                    sectionActive(location.pathname, item.to)
+                      ? "bg-[var(--bg-raised)] shadow-sm"
+                      : "hover:bg-[var(--bg-hover)]",
                   )
                 }
               >
@@ -110,6 +130,21 @@ export function Shell() {
             ))}
           </nav>
           <div className="space-y-2 border-t border-[var(--line)] p-3">
+            <button
+              type="button"
+              className="btn btn-small w-full"
+              disabled={syncing}
+              title="Push this computer to the sync folder"
+              onClick={() => {
+                void (async () => {
+                  const status = await syncNow();
+                  if (!status.folder) setSettingsOpen(true);
+                })();
+              }}
+            >
+              <RefreshCw size={14} className={syncing ? "animate-spin" : undefined} />
+              {syncing ? "Syncing…" : "Sync"}
+            </button>
             <div className="flex gap-1">
               <button
                 type="button"
@@ -131,7 +166,7 @@ export function Shell() {
               </button>
             </div>
             <p className="px-1 text-[10px] leading-4 text-[var(--ink-muted)]">
-              Archive instead of delete. Backup options will live in Settings.
+              Archive instead of delete. Sync a folder from Settings.
             </p>
           </div>
         </aside>
@@ -146,7 +181,11 @@ export function Shell() {
       >
         <Outlet />
       </main>
-      <CommandPalette open={palette} onClose={() => setPalette(false)} />
+      <CommandPalette
+        open={palette}
+        onClose={() => setPalette(false)}
+        studentsPath={studentsReturnTo}
+      />
       {settingsOpen ? <SettingsWindow onClose={() => setSettingsOpen(false)} /> : null}
     </div>
   );

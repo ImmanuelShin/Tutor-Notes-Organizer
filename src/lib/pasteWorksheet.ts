@@ -6,6 +6,7 @@ import {
   parseCell,
   serializeDays,
   setCell,
+  toDayLog,
   todayIsoDate,
   uid,
   TEMPLATE_COLUMN_SPECS,
@@ -180,13 +181,20 @@ export function previewWorksheetPaste(
 
 function mergeAssessment(existing: string, incoming: string): string {
   const parsed = parseCell(existing);
+  const today = todayIsoDate();
   if (parsed.kind === "days") {
-    return serializeDays([
-      ...parsed.entries,
-      { id: uid(), date: todayIsoDate(), text: incoming },
-    ]);
+    const idx = parsed.entries.findIndex((e) => e.date === today);
+    if (idx >= 0) {
+      const entries = [...parsed.entries];
+      entries[idx] = {
+        ...entries[idx],
+        text: [entries[idx].text.trim(), incoming].filter(Boolean).join("\n\n"),
+      };
+      return serializeDays(entries);
+    }
+    return serializeDays([...parsed.entries, { id: uid(), date: today, text: incoming }]);
   }
-  return incoming;
+  return toDayLog(incoming);
 }
 
 function writeMappedCells(
@@ -216,7 +224,7 @@ function pastedToRecord(rec: PastedWorksheetRow): Record<string, string> {
     unit: rec.unit,
     goal: rec.goal,
     example: rec.example,
-    assessment: rec.assessment,
+    assessment: rec.assessment.trim() ? toDayLog(rec.assessment) : "",
   };
 }
 
