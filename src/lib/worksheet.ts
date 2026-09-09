@@ -168,7 +168,7 @@ export function cellPreview(raw: string | null | undefined): string {
   return line ? `${date} · ${line}` : date;
 }
 
-function formatShortDay(isoDate: string): string {
+export function formatShortDay(isoDate: string): string {
   const d = new Date(`${isoDate}T00:00:00`);
   if (Number.isNaN(d.getTime())) return isoDate;
   return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });

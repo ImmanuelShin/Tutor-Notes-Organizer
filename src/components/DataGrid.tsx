@@ -5,10 +5,10 @@ import type { Worksheet } from "../types";
 import {
   addWorksheetColumn,
   addWorksheetRow,
-  cellPreview,
   deleteWorksheetColumn,
   deleteWorksheetRow,
   ensureTodayEntry,
+  formatShortDay,
   isAssessmentColumn,
   parseCell,
   renameColumn,
@@ -515,7 +515,7 @@ export function DataGrid({
                     >
                       <div className="sheet-cell-body">
                         {parsed.kind === "days" ? (
-                          <DayCellPreview raw={raw} count={parsed.entries.length} />
+                          <DayCellPreview entries={parsed.entries} />
                         ) : (
                           <div className={cn("sheet-display", isEd && "opacity-40")}>{parsed.text}</div>
                         )}
@@ -609,13 +609,18 @@ export function DataGrid({
   );
 }
 
-function DayCellPreview({ raw, count }: { raw: string; count: number }) {
+function DayCellPreview({ entries }: { entries: DayEntry[] }) {
+  const latest = sortDayEntries(entries)[0];
+  const count = entries.length;
   return (
     <div className="sheet-display sheet-day-preview">
-      <span className="chip shrink-0">
-        {count} day{count === 1 ? "" : "s"}
-      </span>
-      <span className="min-w-0 truncate">{cellPreview(raw)}</span>
+      <div className="sheet-day-preview-meta">
+        <span className="chip shrink-0">
+          {count} day{count === 1 ? "" : "s"}
+        </span>
+        {latest ? <span className="sheet-day-preview-date">{formatShortDay(latest.date)}</span> : null}
+      </div>
+      {latest?.text ? <div className="sheet-day-preview-text">{latest.text}</div> : null}
     </div>
   );
 }
@@ -752,8 +757,8 @@ function DayNotesModal({
         <div className="day-notes-body">
           <p className="mb-3 text-sm text-[var(--ink-muted)]">
             {autoToday
-              ? "New notes start as today. Older days keep the date they were written. The grid only shows the latest day."
-              : "One entry per session. The grid only shows the latest day so the cell stays small."}
+              ? "New notes start as today. Older days keep the date they were written. The grid shows the latest day."
+              : "One entry per session. The grid shows the latest day."}
           </p>
           <div className="space-y-3">
             {sorted.map((entry) => (
