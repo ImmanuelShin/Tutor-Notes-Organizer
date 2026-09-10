@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, ChevronDown, ChevronRight, Play, Square } from "lucide-react";
+import { ArrowLeft, ChevronDown, ChevronRight, Pencil, Play, Square } from "lucide-react";
 import { useSettings } from "../context/SettingsContext";
 import { getStudent, updateStudent } from "../db/students";
 import { createSession, deleteSession, listSessions, updateSession } from "../db/sessions";
@@ -63,6 +63,7 @@ import { ResourceFileView } from "../components/ResourceFileView";
 import { StudentAssignments } from "../components/StudentAssignments";
 import { StudentWorkspace } from "../components/StudentWorkspace";
 import { StudentCanvas } from "../components/StudentCanvas";
+import { StudentInfoModal } from "../components/StudentInfoModal";
 import { setAppWindowTitle } from "../lib/windows";
 
 export function StudentDetail() {
@@ -85,6 +86,7 @@ export function StudentDetail() {
   const [attachOpen, setAttachOpen] = useState(false);
   const [mediaPickAt, setMediaPickAt] = useState<{ x: number; y: number } | null>(null);
   const [quietOpen, setQuietOpen] = useState(false);
+  const [infoOpen, setInfoOpen] = useState(false);
   const [workspace, setWorkspace] = useState<Workspace>(emptyWorkspace);
   const [layout, setLayout] = useState(defaultPageLayout);
   const saveTimer = useRef<number | null>(null);
@@ -307,6 +309,9 @@ export function StudentDetail() {
           subtitle={[student.subject, student.level].filter(Boolean).join(" · ") || "Add a subject"}
           actions={
             <>
+              <button type="button" className="btn" onClick={() => setInfoOpen(true)}>
+                <Pencil size={16} /> Edit
+              </button>
               <ConfirmButton
                 label={student.archived ? "Unarchive" : "Archive"}
                 confirm="Click again to confirm"
@@ -419,7 +424,7 @@ export function StudentDetail() {
           }
           if (panel.id === "profile") {
             return (
-              <div className="space-y-3 p-3">
+              <div key={student.updated_at} className="space-y-3 p-3">
                 <label className="block text-sm">
                   Name
                   <input
@@ -519,6 +524,14 @@ export function StudentDetail() {
           );
         }}
       />
+
+      {infoOpen ? (
+        <StudentInfoModal
+          student={student}
+          onClose={() => setInfoOpen(false)}
+          onSave={(patch) => saveField(patch)}
+        />
+      ) : null}
 
       {sessionOpen ? (
         <SessionModal

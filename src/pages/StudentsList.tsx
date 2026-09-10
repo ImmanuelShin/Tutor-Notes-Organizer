@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { Plus } from "lucide-react";
-import { createStudent, listStudents } from "../db/students";
+import { Pencil, Plus } from "lucide-react";
+import { createStudent, listStudents, updateStudent } from "../db/students";
 import type { Student } from "../types";
 import { formatDate, initials, parseTags } from "../lib/format";
 import { EmptyState, Modal, PageHeader } from "../components/ui";
 import { PopupMenu, WindowMenuItems } from "../components/PopupMenu";
+import { StudentInfoModal } from "../components/StudentInfoModal";
 
 export function StudentsList() {
   const nav = useNavigate();
@@ -17,6 +18,7 @@ export function StudentsList() {
   const [name, setName] = useState("");
   const [subject, setSubject] = useState("");
   const [menu, setMenu] = useState<{ x: number; y: number; student: Student } | null>(null);
+  const [editing, setEditing] = useState<Student | null>(null);
 
   const reload = async () => {
     setRows(await listStudents({ archived, query }));
@@ -90,40 +92,63 @@ export function StudentsList() {
       ) : (
         <div className="grid gap-2">
           {rows.map((s) => (
-            <button
+            <div
               key={s.id}
-              type="button"
-              className="card flex items-center gap-4 px-4 py-3 text-left hover:bg-[var(--bg-hover)]"
-              onClick={() => nav(`/students/${s.id}`)}
+              className="card flex items-center gap-4 px-4 py-3 hover:bg-[var(--bg-hover)]"
               onContextMenu={(e) => {
                 e.preventDefault();
                 setMenu({ x: e.clientX, y: e.clientY, student: s });
               }}
             >
-              <span className="flex h-10 w-10 items-center justify-center rounded-full bg-[var(--accent-soft)] text-sm text-[var(--accent)]">
-                {initials(s.name)}
-              </span>
-              <span className="min-w-0 flex-1">
-                <span className="block font-medium">{s.name}</span>
-                <span className="block text-sm text-[var(--ink-muted)]">
-                  {[s.subject, s.level].filter(Boolean).join(" · ") || "No subject yet"}
-                  {s.last_session ? ` · last session ${formatDate(s.last_session)}` : ""}
+              <button
+                type="button"
+                className="flex min-w-0 flex-1 items-center gap-4 text-left"
+                onClick={() => nav(`/students/${s.id}`)}
+              >
+                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[var(--accent-soft)] text-sm text-[var(--accent)]">
+                  {initials(s.name)}
                 </span>
-              </span>
-              <span className="hidden flex-wrap gap-1 sm:flex">
-                {parseTags(s.tags).slice(0, 3).map((t) => (
-                  <span key={t} className="chip">
-                    {t}
+                <span className="min-w-0 flex-1">
+                  <span className="block font-medium">{s.name}</span>
+                  <span className="block text-sm text-[var(--ink-muted)]">
+                    {[s.subject, s.level].filter(Boolean).join(" · ") || "No subject yet"}
+                    {s.last_session ? ` · last session ${formatDate(s.last_session)}` : ""}
                   </span>
-                ))}
-              </span>
-            </button>
+                </span>
+                <span className="hidden flex-wrap gap-1 sm:flex">
+                  {parseTags(s.tags).slice(0, 3).map((t) => (
+                    <span key={t} className="chip">
+                      {t}
+                    </span>
+                  ))}
+                </span>
+              </button>
+              <button
+                type="button"
+                className="btn btn-quiet btn-small shrink-0"
+                title="Edit student"
+                onClick={() => setEditing(s)}
+              >
+                <Pencil size={16} />
+              </button>
+            </div>
           ))}
         </div>
       )}
 
       {menu ? (
-        <PopupMenu x={menu.x} y={menu.y} onClose={() => setMenu(null)} height={88}>
+        <PopupMenu x={menu.x} y={menu.y} onClose={() => setMenu(null)} height={128}>
+          <button
+            type="button"
+            role="menuitem"
+            className="topic-menu-item"
+            onClick={() => {
+              setEditing(menu.student);
+              setMenu(null);
+            }}
+          >
+            Edit
+          </button>
           <WindowMenuItems
             route={`/students/${menu.student.id}`}
             title={menu.student.name}
@@ -132,6 +157,17 @@ export function StudentsList() {
             onDone={() => setMenu(null)}
           />
         </PopupMenu>
+      ) : null}
+
+      {editing ? (
+        <StudentInfoModal
+          student={editing}
+          onClose={() => setEditing(null)}
+          onSave={async (patch) => {
+            await updateStudent(editing.id, patch);
+            await reload();
+          }}
+        />
       ) : null}
 
       {creating ? (

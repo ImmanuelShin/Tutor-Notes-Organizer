@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { FilePlus, Image as ImageIcon, LayoutGrid, Link2, List, Plus, Trash2 } from "lucide-react";
@@ -32,20 +32,75 @@ const FILTERS: Array<{ id: ResourceType | "all"; label: string }> = [
   { id: "lecture_note", label: "Lecture notes" },
 ];
 
+const LIBRARY_FILTERS_KEY = "tutor.resources.library-filters";
+
+type LibraryFilters = {
+  query: string;
+  filter: ResourceType | "all";
+  studentsMode: boolean;
+  ownerId: number | null;
+  view: "list" | "preview";
+};
+
+const DEFAULT_LIBRARY_FILTERS: LibraryFilters = {
+  query: "",
+  filter: "all",
+  studentsMode: false,
+  ownerId: null,
+  view: "list",
+};
+
+function loadLibraryFilters(): LibraryFilters {
+  try {
+    const raw = sessionStorage.getItem(LIBRARY_FILTERS_KEY);
+    if (!raw) return DEFAULT_LIBRARY_FILTERS;
+    const parsed = JSON.parse(raw) as Partial<LibraryFilters>;
+    const filter =
+      parsed.filter === "pdf" ||
+      parsed.filter === "image" ||
+      parsed.filter === "link" ||
+      parsed.filter === "lecture_note" ||
+      parsed.filter === "all"
+        ? parsed.filter
+        : "all";
+    return {
+      query: typeof parsed.query === "string" ? parsed.query : "",
+      filter,
+      studentsMode: Boolean(parsed.studentsMode),
+      ownerId:
+        typeof parsed.ownerId === "number" && Number.isInteger(parsed.ownerId) && parsed.ownerId > 0
+          ? parsed.ownerId
+          : null,
+      view: parsed.view === "preview" ? "preview" : "list",
+    };
+  } catch {
+    return DEFAULT_LIBRARY_FILTERS;
+  }
+}
+
+function saveLibraryFilters(filters: LibraryFilters) {
+  try {
+    sessionStorage.setItem(LIBRARY_FILTERS_KEY, JSON.stringify(filters));
+  } catch {
+    /* ignore quota / private mode */
+  }
+}
+
 export function ResourcesPage() {
   const nav = useNavigate();
   const [params, setParams] = useSearchParams();
-  const [query, setQuery] = useState("");
-  const [filter, setFilter] = useState<ResourceType | "all">("all");
-  const [studentsMode, setStudentsMode] = useState(false);
-  const [ownerId, setOwnerId] = useState<number | null>(null);
+  const initialFilters = useMemo(() => loadLibraryFilters(), []);
+  const [query, setQuery] = useState(initialFilters.query);
+  const [filter, setFilter] = useState<ResourceType | "all">(initialFilters.filter);
+  const [studentsMode, setStudentsMode] = useState(initialFilters.studentsMode);
+  const [ownerId, setOwnerId] = useState<number | null>(initialFilters.ownerId);
   const [owners, setOwners] = useState<{ id: number; name: string; subject: string }[]>([]);
   const [rows, setRows] = useState<Resource[]>([]);
   const [linkOpen, setLinkOpen] = useState(false);
   const [noteOpen, setNoteOpen] = useState(false);
   const [editing, setEditing] = useState<Resource | null>(null);
   const [dropActive, setDropActive] = useState(false);
-  const [view, setView] = useState<"list" | "preview">("list");
+  const [view, setView] = useState<"list" | "preview">(initialFilters.view);
   const [selectMode, setSelectMode] = useState(false);
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [pendingDelete, setPendingDelete] = useState<Resource[] | null>(null);
@@ -67,6 +122,10 @@ export function ResourcesPage() {
     }
     setRows(await listResources({ type: filter, query, ownerStudentId: selected }));
   };
+
+  useEffect(() => {
+    saveLibraryFilters({ query, filter, studentsMode, ownerId, view });
+  }, [query, filter, studentsMode, ownerId, view]);
 
   useEffect(() => {
     void reload();
