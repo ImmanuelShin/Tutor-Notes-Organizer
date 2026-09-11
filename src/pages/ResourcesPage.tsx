@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { FilePlus, Image as ImageIcon, LayoutGrid, Link2, List, Plus, Trash2 } from "lucide-react";
+import { useSettings } from "../context/SettingsContext";
 import {
   createResource,
   deleteResource,
@@ -19,6 +20,7 @@ import {
 } from "../lib/importFiles";
 import type { Resource, ResourceType } from "../types";
 import { parseTags, serializeTags } from "../lib/format";
+import { openResourceWindow } from "../lib/windows";
 import { EmptyState, Modal, PageHeader, TagInput } from "../components/ui";
 import { ResourceRow } from "../components/ResourceRow";
 import { ResourcePreviewCard } from "../components/ResourcePreviewCard";
@@ -88,6 +90,7 @@ function saveLibraryFilters(filters: LibraryFilters) {
 
 export function ResourcesPage() {
   const nav = useNavigate();
+  const { resourceFileOpen } = useSettings();
   const [params, setParams] = useSearchParams();
   const initialFilters = useMemo(() => loadLibraryFilters(), []);
   const [query, setQuery] = useState(initialFilters.query);
@@ -155,6 +158,15 @@ export function ResourcesPage() {
     return () => unlisten?.();
   }, [filter, query, studentsMode]);
 
+  const openCreated = (id: number, title = "Resource") => {
+    if (resourceFileOpen === "window") {
+      void openResourceWindow({ id, title });
+      void reload();
+      return;
+    }
+    nav(`/resources/${id}`);
+  };
+
   const pickPdf = async () => {
     await importPaths(await pickPdfPaths());
     await reload();
@@ -163,7 +175,7 @@ export function ResourcesPage() {
   const pickImages = async () => {
     const paths = await pickImagePaths();
     const ids = await importPaths(paths);
-    if (paths.length === 1 && ids[0]) nav(`/resources/${ids[0]}`);
+    if (paths.length === 1 && ids[0]) openCreated(ids[0]);
     else await reload();
   };
 
@@ -177,13 +189,13 @@ export function ResourcesPage() {
       e.preventDefault();
       void (async () => {
         const ids = await importClipboardImages(files);
-        if (files.length === 1 && ids[0]) nav(`/resources/${ids[0]}`);
+        if (files.length === 1 && ids[0]) openCreated(ids[0]);
         else await reload();
       })();
     };
     window.addEventListener("paste", onPaste);
     return () => window.removeEventListener("paste", onPaste);
-  }, [filter, query, nav, studentsMode]);
+  }, [filter, query, nav, studentsMode, resourceFileOpen]);
 
   const closeEditor = () => {
     setEditing(null);

@@ -1,5 +1,5 @@
 import { getDb } from "./client";
-import type { Density, SearchHit, Theme } from "../types";
+import type { Density, ResourceFileOpen, SearchHit, StudentFileOpen, Theme } from "../types";
 
 export async function getSetting(key: string): Promise<string | null> {
   const db = await getDb();
@@ -19,12 +19,21 @@ export async function setSetting(key: string, value: string): Promise<void> {
   );
 }
 
-export async function loadUiSettings(): Promise<{ theme: Theme; density: Density }> {
+export async function loadUiSettings(): Promise<{
+  theme: Theme;
+  density: Density;
+  studentFileOpen: StudentFileOpen;
+  resourceFileOpen: ResourceFileOpen;
+}> {
   const theme = ((await getSetting("theme")) as Theme | null) ?? "light";
   const density = ((await getSetting("density")) as Density | null) ?? "comfortable";
+  const studentFileOpen = (await getSetting("student_file_open")) as StudentFileOpen | null;
+  const resourceFileOpen = (await getSetting("resource_file_open")) as ResourceFileOpen | null;
   return {
     theme: theme === "dark" ? "dark" : "light",
     density: density === "compact" ? "compact" : "comfortable",
+    studentFileOpen: studentFileOpen === "window" ? "window" : "canvas",
+    resourceFileOpen: resourceFileOpen === "window" ? "window" : "same",
   };
 }
 

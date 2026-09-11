@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { ChevronDown, ChevronRight, Plus } from "lucide-react";
+import { useSettings } from "../context/SettingsContext";
 import { deleteResource, getResource } from "../db/resources";
 import type { Resource } from "../types";
 import {
@@ -10,7 +11,7 @@ import {
   pickAssignmentPaths,
 } from "../lib/importFiles";
 import { formatMdY, localDayKey, parseDateTime } from "../lib/format";
-import { openAppWindow } from "../lib/windows";
+import { openStudentFile } from "../lib/windows";
 import { ConfirmButton } from "./ui";
 import { ResourceRow } from "./ResourceRow";
 
@@ -26,17 +27,6 @@ function groupByDay(items: Resource[]) {
   return [...map.values()].sort((a, b) => (a.key < b.key ? 1 : -1));
 }
 
-async function openAssignment(resource: Resource) {
-  if (resource.type !== "pdf" && resource.type !== "image") return;
-  await openAppWindow({
-    route: `/resources/${resource.id}`,
-    title: resource.title,
-    kind: "resource",
-    id: resource.id,
-    chrome: "focus",
-  });
-}
-
 export function StudentAssignments({
   studentId,
   items,
@@ -48,16 +38,30 @@ export function StudentAssignments({
   onChange: () => void;
   onOpenOnCanvas?: (resource: Resource) => void;
 }) {
+  const { studentFileOpen } = useSettings();
   const [dropActive, setDropActive] = useState(false);
   const todayKey = localDayKey(new Date());
   const [open, setOpen] = useState<Set<string>>(() => new Set([todayKey]));
+  const studentFileOpenRef = useRef(studentFileOpen);
+  const onOpenOnCanvasRef = useRef(onOpenOnCanvas);
+  studentFileOpenRef.current = studentFileOpen;
+  onOpenOnCanvasRef.current = onOpenOnCanvas;
+
+  const openFile = (resource: Resource) => {
+    openStudentFile(resource, {
+      mode: studentFileOpenRef.current,
+      onCanvas: onOpenOnCanvasRef.current
+        ? () => onOpenOnCanvasRef.current?.(resource)
+        : undefined,
+    });
+  };
 
   const finishImport = async (ids: number[]) => {
     setOpen((prev) => new Set(prev).add(localDayKey(new Date())));
     onChange();
     if (ids.length !== 1) return;
     const row = await getResource(ids[0]);
-    if (row) await openAssignment(row);
+    if (row) openFile(row);
   };
 
   useEffect(() => {
@@ -146,7 +150,7 @@ export function StudentAssignments({
                       <ResourceRow
                         key={r.id}
                         resource={r}
-                        onOpen={() => void openAssignment(r)}
+                        onOpen={() => openFile(r)}
                         onOpenOnCanvas={onOpenOnCanvas ? () => onOpenOnCanvas(r) : undefined}
                         trailing={
                           <ConfirmButton

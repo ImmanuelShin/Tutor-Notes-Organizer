@@ -1,8 +1,10 @@
 import { useState, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import { FileText, Image as ImageIcon, Link2, Paperclip } from "lucide-react";
+import { useSettings } from "../context/SettingsContext";
 import type { Resource } from "../types";
 import { openExternalUrl } from "../lib/media";
+import { openResourceWindow } from "../lib/windows";
 import { cn, parseTags } from "../lib/format";
 import { PopupMenu, WindowMenuItems } from "./PopupMenu";
 import { ResourceActionsMenu } from "./ResourceActionsMenu";
@@ -31,6 +33,7 @@ export function ResourceRow({
   onDelete?: () => void;
 }) {
   const nav = useNavigate();
+  const { resourceFileOpen } = useSettings();
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   const showActions = Boolean(onSelect && onEdit && onDelete) && !selectMode;
 
@@ -45,6 +48,10 @@ export function ResourceRow({
     }
     if (resource.type === "link" && resource.url) {
       await openExternalUrl(resource.url);
+      return;
+    }
+    if (resourceFileOpen === "window") {
+      await openResourceWindow({ id: resource.id, title: resource.title });
       return;
     }
     nav(`/resources/${resource.id}`);

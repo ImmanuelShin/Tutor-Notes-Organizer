@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useSettings } from "../context/SettingsContext";
 import { cn } from "../lib/format";
 import { optimizeLibrary } from "../lib/libraryFiles";
 import {
@@ -75,14 +76,91 @@ export function SettingsWindow({ onClose }: { onClose: () => void }) {
 }
 
 function GeneralSection() {
+  const {
+    studentFileOpen,
+    resourceFileOpen,
+    setStudentFileOpen,
+    setResourceFileOpen,
+  } = useSettings();
+
   return (
-    <div>
-      <h3 className="text-lg">General</h3>
-      <p className="mt-2 max-w-xl text-sm text-[var(--ink-muted)]">
-        Theme and density live in the sidebar. Library files stay on this PC and can be mirrored to
-        a cloud folder from the Sync section.
-      </p>
+    <div className="max-w-xl space-y-6">
+      <div>
+        <h3 className="text-lg">General</h3>
+        <p className="mt-2 text-sm text-[var(--ink-muted)]">
+          Theme and density live in the sidebar. Library files stay on this PC and can be mirrored to
+          a cloud folder from the Sync section.
+        </p>
+      </div>
+
+      <fieldset className="space-y-2">
+        <legend className="text-sm font-medium">Student page files</legend>
+        <p className="text-sm text-[var(--ink-muted)]">
+          Left-click a PDF or image on a student page.
+        </p>
+        {(
+          [
+            { value: "canvas", label: "Open on canvas", hint: "Places the file on the student board." },
+            { value: "window", label: "Open in new window", hint: "Opens the file in a separate window." },
+          ] as const
+        ).map((opt) => (
+          <Choice
+            key={opt.value}
+            name="student-file-open"
+            checked={studentFileOpen === opt.value}
+            onChange={() => setStudentFileOpen(opt.value)}
+            label={opt.label}
+            hint={opt.hint}
+          />
+        ))}
+      </fieldset>
+
+      <fieldset className="space-y-2">
+        <legend className="text-sm font-medium">Resources page files</legend>
+        <p className="text-sm text-[var(--ink-muted)]">
+          Left-click a file in the library.
+        </p>
+        {(
+          [
+            { value: "same", label: "Open in same window", hint: "Replaces this page with the file." },
+            { value: "window", label: "Open in new window", hint: "Keeps the library open in this window." },
+          ] as const
+        ).map((opt) => (
+          <Choice
+            key={opt.value}
+            name="resource-file-open"
+            checked={resourceFileOpen === opt.value}
+            onChange={() => setResourceFileOpen(opt.value)}
+            label={opt.label}
+            hint={opt.hint}
+          />
+        ))}
+      </fieldset>
     </div>
+  );
+}
+
+function Choice({
+  name,
+  checked,
+  onChange,
+  label,
+  hint,
+}: {
+  name: string;
+  checked: boolean;
+  onChange: () => void;
+  label: string;
+  hint: string;
+}) {
+  return (
+    <label className="flex items-start gap-2 text-sm">
+      <input type="radio" className="mt-1" name={name} checked={checked} onChange={onChange} />
+      <span>
+        <span className="font-medium">{label}</span>
+        <span className="mt-0.5 block text-[var(--ink-muted)]">{hint}</span>
+      </span>
+    </label>
   );
 }
 

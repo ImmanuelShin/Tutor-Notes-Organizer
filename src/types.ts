@@ -1,5 +1,7 @@
 export type Theme = "light" | "dark";
 export type Density = "comfortable" | "compact";
+export type StudentFileOpen = "canvas" | "window";
+export type ResourceFileOpen = "same" | "window";
 
 export interface Student {
   id: number;

@@ -1,4 +1,5 @@
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
+import type { StudentFileOpen } from "../types";
 
 export type WindowChrome = "full" | "focus";
 
@@ -33,6 +34,35 @@ function windowLabel(chrome: WindowChrome, kind: string, id: string | number): s
 function hashUrl(route: string): string {
   const hash = route.startsWith("/") ? route : `/${route}`;
   return `${window.location.origin}${window.location.pathname}${window.location.search}#${hash}`;
+}
+
+export async function openResourceWindow(opts: {
+  id: number;
+  title: string;
+  chrome?: WindowChrome;
+}): Promise<void> {
+  await openAppWindow({
+    route: `/resources/${opts.id}`,
+    title: opts.title,
+    kind: "resource",
+    id: opts.id,
+    chrome: opts.chrome ?? "full",
+  });
+}
+
+export function canOpenOnCanvas(type: string): boolean {
+  return type === "pdf" || type === "image";
+}
+
+export function openStudentFile(
+  resource: { id: number; title: string; type: string },
+  opts: { mode: StudentFileOpen; onCanvas?: () => void },
+): void {
+  if (canOpenOnCanvas(resource.type) && opts.mode === "canvas" && opts.onCanvas) {
+    opts.onCanvas();
+    return;
+  }
+  void openResourceWindow({ id: resource.id, title: resource.title });
 }
 
 export async function openAppWindow(opts: {

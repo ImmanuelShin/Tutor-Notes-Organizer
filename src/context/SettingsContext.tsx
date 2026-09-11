@@ -20,17 +20,21 @@ import {
   syncNow as runSyncNow,
   type SyncStatus,
 } from "../lib/sync";
-import type { Density, Theme } from "../types";
+import type { Density, ResourceFileOpen, StudentFileOpen, Theme } from "../types";
 
 type Settings = {
   ready: boolean;
   error: string | null;
   theme: Theme;
   density: Density;
+  studentFileOpen: StudentFileOpen;
+  resourceFileOpen: ResourceFileOpen;
   syncing: boolean;
   syncNow: () => Promise<SyncStatus>;
   setTheme: (theme: Theme) => void;
   setDensity: (density: Density) => void;
+  setStudentFileOpen: (value: StudentFileOpen) => void;
+  setResourceFileOpen: (value: ResourceFileOpen) => void;
 };
 
 const SettingsContext = createContext<Settings | null>(null);
@@ -40,6 +44,8 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   const [error, setError] = useState<string | null>(null);
   const [theme, setThemeState] = useState<Theme>("light");
   const [density, setDensityState] = useState<Density>("comfortable");
+  const [studentFileOpen, setStudentFileOpenState] = useState<StudentFileOpen>("canvas");
+  const [resourceFileOpen, setResourceFileOpenState] = useState<ResourceFileOpen>("same");
   const [syncing, setSyncing] = useState(false);
   const syncingRef = useRef(false);
 
@@ -70,6 +76,8 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
         if (cancelled) return;
         setThemeState(ui.theme);
         setDensityState(ui.density);
+        setStudentFileOpenState(ui.studentFileOpen);
+        setResourceFileOpenState(ui.resourceFileOpen);
         setReady(true);
 
         if (!isMain || cancelled) return;
@@ -144,9 +152,45 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     void setSetting("density", next);
   }, []);
 
+  const setStudentFileOpen = useCallback((next: StudentFileOpen) => {
+    setStudentFileOpenState(next);
+    void setSetting("student_file_open", next);
+  }, []);
+
+  const setResourceFileOpen = useCallback((next: ResourceFileOpen) => {
+    setResourceFileOpenState(next);
+    void setSetting("resource_file_open", next);
+  }, []);
+
   const value = useMemo(
-    () => ({ ready, error, theme, density, syncing, syncNow, setTheme, setDensity }),
-    [ready, error, theme, density, syncing, syncNow, setTheme, setDensity],
+    () => ({
+      ready,
+      error,
+      theme,
+      density,
+      studentFileOpen,
+      resourceFileOpen,
+      syncing,
+      syncNow,
+      setTheme,
+      setDensity,
+      setStudentFileOpen,
+      setResourceFileOpen,
+    }),
+    [
+      ready,
+      error,
+      theme,
+      density,
+      studentFileOpen,
+      resourceFileOpen,
+      syncing,
+      syncNow,
+      setTheme,
+      setDensity,
+      setStudentFileOpen,
+      setResourceFileOpen,
+    ],
   );
 
   if (error) {

@@ -2,9 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Eye, EyeOff, GripVertical, Minus, Plus, SquarePlus, X } from "lucide-react";
 import type { PagePanel, StudentPageLayout } from "../types";
 import {
-  BOARD_HEIGHT,
-  BOARD_WIDTH,
-  MIN_ZOOM,
+  canvasWorldSize,
   clampZoom,
   isBuiltinPanelId,
   panelLabel,
@@ -13,8 +11,6 @@ import {
   removePanel,
   resetLayout,
   setPanelHidden,
-  visibleCenterWorld,
-  viewportPointToWorld,
 } from "../lib/pageLayout";
 import { PopupMenu } from "./PopupMenu";
 
@@ -34,8 +30,8 @@ export function StudentCanvas({
   onChange: (next: StudentPageLayout) => void;
   renderPanel: (panel: PagePanel) => ReactNode;
   panelTitle?: (panel: PagePanel) => string;
-  onAddWorkspace: (at: { x: number; y: number }) => void;
-  onAddMedia: (at: { x: number; y: number }) => void;
+  onAddWorkspace: () => void;
+  onAddMedia: () => void;
   onRemovePanel: (id: string) => void;
 }) {
   const viewportRef = useRef<HTMLDivElement>(null);
@@ -48,14 +44,9 @@ export function StudentCanvas({
   };
   const [layoutOpen, setLayoutOpen] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
-  const [contextMenu, setContextMenu] = useState<{
-    x: number;
-    y: number;
-    world: { x: number; y: number };
-  } | null>(null);
-  const [worldSize, setWorldSize] = useState({ w: BOARD_WIDTH, h: BOARD_HEIGHT });
-  const worldRef = useRef(worldSize);
-  worldRef.current = worldSize;
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
+  const [viewportPx, setViewportPx] = useState({ width: 960, height: 720 });
+  const worldSize = canvasWorldSize(layout, viewportPx);
   const layoutMenuRef = useRef<HTMLDivElement>(null);
   const addMenuRef = useRef<HTMLDivElement>(null);
   const panRef = useRef<{
@@ -81,21 +72,12 @@ export function StudentCanvas({
 
   const titleOf = (panel: PagePanel) => panelTitle?.(panel) ?? panelLabel(panel);
 
-  const centerWorld = () => {
-    const el = viewportRef.current;
-    if (!el) return { x: 40, y: 40 };
-    return visibleCenterWorld(layoutRef.current, el.getBoundingClientRect());
-  };
-
   useEffect(() => {
     const el = viewportRef.current;
     if (!el) return;
     const update = () => {
       const r = el.getBoundingClientRect();
-      setWorldSize({
-        w: Math.max(BOARD_WIDTH, Math.ceil(r.width / MIN_ZOOM)),
-        h: Math.max(BOARD_HEIGHT, Math.ceil(r.height / MIN_ZOOM)),
-      });
+      setViewportPx({ width: r.width, height: r.height });
     };
     update();
     const ro = new ResizeObserver(update);
@@ -221,12 +203,8 @@ export function StudentCanvas({
     const drag = dragRef.current;
     if (!drag) return;
     const zoom = layoutRef.current.zoom;
-    const panel = layoutRef.current.panels.find((p) => p.id === drag.id);
-    const pw = panel?.w ?? MIN_W;
-    const ph = panel?.h ?? MIN_H;
-    const world = worldRef.current;
-    const x = Math.max(0, Math.min(world.w - pw, drag.origX + (e.clientX - drag.startX) / zoom));
-    const y = Math.max(0, Math.min(world.h - ph, drag.origY + (e.clientY - drag.startY) / zoom));
+    const x = drag.origX + (e.clientX - drag.startX) / zoom;
+    const y = drag.origY + (e.clientY - drag.startY) / zoom;
     emit(patchPanel(layoutRef.current, drag.id, { x, y }));
   };
 
@@ -252,10 +230,8 @@ export function StudentCanvas({
     const resize = resizeRef.current;
     if (!resize) return;
     const zoom = layoutRef.current.zoom;
-    const panel = layoutRef.current.panels.find((p) => p.id === resize.id);
-    const world = worldRef.current;
-    const w = Math.min(world.w - (panel?.x ?? 0), Math.max(MIN_W, resize.origW + (e.clientX - resize.startX) / zoom));
-    const h = Math.min(world.h - (panel?.y ?? 0), Math.max(MIN_H, resize.origH + (e.clientY - resize.startY) / zoom));
+    const w = Math.max(MIN_W, resize.origW + (e.clientX - resize.startX) / zoom);
+    const h = Math.max(MIN_H, resize.origH + (e.clientY - resize.startY) / zoom);
     emit(patchPanel(layoutRef.current, resize.id, { w, h }));
   };
 
@@ -274,18 +250,17 @@ export function StudentCanvas({
     setContextMenu({
       x: e.clientX,
       y: e.clientY,
-      world: viewportPointToWorld(layoutRef.current, el.getBoundingClientRect(), e.clientX, e.clientY),
     });
   };
 
-  const addItems = (world: { x: number; y: number }) => (
+  const addItems = () => (
     <>
       <button
         type="button"
         role="menuitem"
         className="topic-menu-item w-full"
         onClick={() => {
-          onAddWorkspace(world);
+          onAddWorkspace();
           setAddOpen(false);
           setContextMenu(null);
         }}
@@ -297,7 +272,7 @@ export function StudentCanvas({
         role="menuitem"
         className="topic-menu-item w-full"
         onClick={() => {
-          onAddMedia(world);
+          onAddMedia();
           setAddOpen(false);
           setContextMenu(null);
         }}
@@ -441,7 +416,7 @@ export function StudentCanvas({
           </button>
           {addOpen ? (
             <div className="absolute bottom-full left-0 z-20 mb-1 min-w-52 rounded-xl border border-[var(--line)] bg-[var(--bg-raised)] py-1 shadow">
-              {addItems(centerWorld())}
+              {addItems()}
             </div>
           ) : null}
         </div>
@@ -515,7 +490,7 @@ export function StudentCanvas({
           width={200}
           height={88}
         >
-          {addItems(contextMenu.world)}
+          {addItems()}
         </PopupMenu>
       ) : null}
     </div>

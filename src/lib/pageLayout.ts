@@ -48,6 +48,11 @@ export function defaultPageLayout(): StudentPageLayout {
   };
 }
 
+function parseCoord(value: unknown, fallback: number): number {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : fallback;
+}
+
 function parseKind(raw: Partial<PagePanel> & { id?: unknown }): PagePanelKind | null {
   const id = typeof raw.id === "string" ? raw.id : "";
   if (raw.kind === "media" || id.startsWith("media_")) return "media";
@@ -70,8 +75,8 @@ function parsePanel(raw: unknown): PagePanel | null {
       id,
       kind,
       resourceId,
-      x: Math.max(0, Number(p.x) || 0),
-      y: Math.max(0, Number(p.y) || 0),
+      x: parseCoord(p.x, 0),
+      y: parseCoord(p.y, 0),
       w: Math.min(4000, Math.max(240, Number(p.w) || NEW_PANEL_W)),
       h: Math.min(4000, Math.max(140, Number(p.h) || NEW_PANEL_H)),
       hidden: p.hidden === true ? true : undefined,
@@ -82,8 +87,8 @@ function parsePanel(raw: unknown): PagePanel | null {
   return {
     id,
     kind,
-    x: Math.max(0, Number(p.x) || 0),
-    y: Math.max(0, Number(p.y) || 0),
+    x: parseCoord(p.x, 0),
+    y: parseCoord(p.y, 0),
     w: Math.min(4000, Math.max(240, Number(p.w) || 320)),
     h: Math.min(4000, Math.max(140, Number(p.h) || 200)),
     hidden: p.hidden === true ? true : undefined,
@@ -213,6 +218,27 @@ export function visibleCenterWorld(
   };
 }
 
+export function canvasViewportSize(): { width: number; height: number } {
+  const el = document.querySelector(".student-canvas-viewport");
+  if (!(el instanceof HTMLElement)) return { width: 960, height: 720 };
+  const r = el.getBoundingClientRect();
+  return { width: Math.max(1, r.width), height: Math.max(1, r.height) };
+}
+
+export function canvasWorldSize(
+  layout: StudentPageLayout,
+  viewport: { width: number; height: number },
+): { w: number; h: number } {
+  let w = Math.max(BOARD_WIDTH, Math.ceil(viewport.width / MIN_ZOOM));
+  let h = Math.max(BOARD_HEIGHT, Math.ceil(viewport.height / MIN_ZOOM));
+  for (const panel of layout.panels) {
+    if (panel.hidden) continue;
+    w = Math.max(w, Math.ceil(panel.x + panel.w + 160));
+    h = Math.max(h, Math.ceil(panel.y + panel.h + 160));
+  }
+  return { w: Math.max(1, w), h: Math.max(1, h) };
+}
+
 export function placeNewPanel(
   layout: StudentPageLayout,
   world: { x: number; y: number },
@@ -227,13 +253,13 @@ export function placeNewPanel(
   };
 }
 
-export function placeInView(layout: StudentPageLayout, board: { w: number; h: number }): { x: number; y: number } {
-  return placeNewPanel(
-    layout,
-    {
-      x: (80 - layout.panX) / layout.zoom,
-      y: (80 - layout.panY) / layout.zoom,
-    },
-    board,
-  );
+export function placeInView(layout: StudentPageLayout): { x: number; y: number } {
+  const size = { w: NEW_PANEL_W, h: NEW_PANEL_H };
+  const extraCount = layout.panels.filter((p) => !isBuiltinPanelId(p.id)).length;
+  const offset = (extraCount % 6) * 24;
+  const center = visibleCenterWorld(layout, canvasViewportSize());
+  return {
+    x: center.x - size.w / 2 + offset,
+    y: center.y - size.h / 2 + offset,
+  };
 }

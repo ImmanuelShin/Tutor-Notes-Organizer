@@ -40,8 +40,6 @@ import {
 import { applyChecklistToWorkspace } from "../lib/templates";
 import {
   addPanel,
-  BOARD_HEIGHT,
-  BOARD_WIDTH,
   defaultPageLayout,
   NEW_PANEL_H,
   NEW_PANEL_W,
@@ -50,7 +48,6 @@ import {
   panelLabel,
   parsePageLayout,
   placeInView,
-  placeNewPanel,
   serializePageLayout,
 } from "../lib/pageLayout";
 import { listTemplates } from "../db/templates";
@@ -64,12 +61,12 @@ import { StudentAssignments } from "../components/StudentAssignments";
 import { StudentWorkspace } from "../components/StudentWorkspace";
 import { StudentCanvas } from "../components/StudentCanvas";
 import { StudentInfoModal } from "../components/StudentInfoModal";
-import { setAppWindowTitle } from "../lib/windows";
+import { setAppWindowTitle, canOpenOnCanvas, openStudentFile } from "../lib/windows";
 
 export function StudentDetail() {
   const { id } = useParams();
   const nav = useNavigate();
-  const { syncNow } = useSettings();
+  const { syncNow, studentFileOpen } = useSettings();
   const studentId = Number(id);
   const [student, setStudent] = useState<Student | null>(null);
   const [sessions, setSessions] = useState<Session[]>([]);
@@ -84,7 +81,7 @@ export function StudentDetail() {
   } | null>(null);
   const [importOpen, setImportOpen] = useState<"table" | "checklist" | null>(null);
   const [attachOpen, setAttachOpen] = useState(false);
-  const [mediaPickAt, setMediaPickAt] = useState<{ x: number; y: number } | null>(null);
+  const [mediaPickOpen, setMediaPickOpen] = useState(false);
   const [quietOpen, setQuietOpen] = useState(false);
   const [infoOpen, setInfoOpen] = useState(false);
   const [workspace, setWorkspace] = useState<Workspace>(emptyWorkspace);
@@ -159,10 +156,9 @@ export function StudentDetail() {
     persistWorkspace(setExtraWorkspace(workspaceRef.current, panelId, next));
   };
 
-  const addWorkspaceAt = (at: { x: number; y: number }) => {
+  const addWorkspaceAt = () => {
     const id = newWorkspacePanelId();
-    const board = { w: BOARD_WIDTH, h: BOARD_HEIGHT };
-    const pos = placeNewPanel(layoutRef.current, at, board);
+    const pos = placeInView(layoutRef.current);
     persistWorkspace(setExtraWorkspace(workspaceRef.current, id, emptyWorkspace()));
     persistLayout(
       addPanel(layoutRef.current, {
@@ -177,12 +173,9 @@ export function StudentDetail() {
     );
   };
 
-  const openMediaOnCanvas = (resource: Resource, at?: { x: number; y: number }) => {
+  const openMediaOnCanvas = (resource: Resource) => {
     if (resource.type !== "pdf" && resource.type !== "image") return;
-    const board = { w: BOARD_WIDTH, h: BOARD_HEIGHT };
-    const pos = at
-      ? placeNewPanel(layoutRef.current, at, board)
-      : placeInView(layoutRef.current, board);
+    const pos = placeInView(layoutRef.current);
     persistLayout(
       addPanel(layoutRef.current, {
         id: newMediaPanelId(),
@@ -195,6 +188,13 @@ export function StudentDetail() {
         z: 1,
       }),
     );
+  };
+
+  const openStudentResource = (resource: Resource) => {
+    openStudentFile(resource, {
+      mode: studentFileOpen,
+      onCanvas: () => openMediaOnCanvas(resource),
+    });
   };
 
   const lookupResource = (resourceId?: number) =>
@@ -356,7 +356,7 @@ export function StudentDetail() {
         onChange={persistLayout}
         panelTitle={(panel) => panelLabel(panel, lookupResource(panel.resourceId)?.title)}
         onAddWorkspace={addWorkspaceAt}
-        onAddMedia={(at) => setMediaPickAt(at)}
+        onAddMedia={() => setMediaPickOpen(true)}
         onRemovePanel={(id) => persistWorkspace(deleteExtraWorkspace(workspaceRef.current, id))}
         renderPanel={(panel: PagePanel) => {
           if (panel.kind === "media") {
@@ -495,7 +495,12 @@ export function StudentDetail() {
                       <ResourceRow
                         key={r.id}
                         resource={r}
-                        onOpenOnCanvas={() => openMediaOnCanvas(r)}
+                        onOpen={
+                          canOpenOnCanvas(r.type) ? () => openStudentResource(r) : undefined
+                        }
+                        onOpenOnCanvas={
+                          canOpenOnCanvas(r.type) ? () => openMediaOnCanvas(r) : undefined
+                        }
                         trailing={
                           <button
                             type="button"
@@ -582,15 +587,15 @@ export function StudentDetail() {
         />
       ) : null}
 
-      {mediaPickAt ? (
+      {mediaPickOpen ? (
         <CanvasMediaPicker
           resources={resources}
           assignments={assignments}
           onPick={(resource) => {
-            openMediaOnCanvas(resource, mediaPickAt);
-            setMediaPickAt(null);
+            openMediaOnCanvas(resource);
+            setMediaPickOpen(false);
           }}
-          onClose={() => setMediaPickAt(null)}
+          onClose={() => setMediaPickOpen(false)}
         />
       ) : null}
     </div>

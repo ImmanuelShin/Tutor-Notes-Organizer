@@ -1,9 +1,11 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { FileText, Image as ImageIcon, Link2, Paperclip } from "lucide-react";
+import { useSettings } from "../context/SettingsContext";
 import type { Resource } from "../types";
 import { openExternalUrl, toDisplaySrc } from "../lib/media";
 import { pdfFirstPageThumb } from "../lib/pdfThumb";
+import { openResourceWindow } from "../lib/windows";
 import { parseTags, cn } from "../lib/format";
 import { PopupMenu, WindowMenuItems } from "./PopupMenu";
 import { ResourceActionsMenu } from "./ResourceActionsMenu";
@@ -28,6 +30,7 @@ export function ResourcePreviewCard({
   onDelete?: () => void;
 }) {
   const nav = useNavigate();
+  const { resourceFileOpen } = useSettings();
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   const showActions = Boolean(onSelect && onEdit && onDelete) && !selectMode;
 
@@ -42,6 +45,10 @@ export function ResourcePreviewCard({
     }
     if (resource.type === "link" && resource.url) {
       await openExternalUrl(resource.url);
+      return;
+    }
+    if (resourceFileOpen === "window") {
+      await openResourceWindow({ id: resource.id, title: resource.title });
       return;
     }
     nav(`/resources/${resource.id}`);
